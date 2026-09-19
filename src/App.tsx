@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Columns2,
   Copy,
+  Download,
   Folder,
   FolderOpen,
   Layers,
@@ -14,6 +15,7 @@ import {
   PanelLeftClose,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   Rows2,
   Save,
@@ -21,7 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { api, desktop } from "./api";
+import { type AvailableUpdate, api, desktop } from "./api";
 import {
   type Config,
   type Layout,
@@ -175,6 +177,11 @@ export default function App() {
   const [busy, setBusy] = useState<"save" | "launch" | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [dragId, setDragId] = useState("");
+  const [version, setVersion] = useState<string | null>(null);
+  const [update, setUpdate] = useState<AvailableUpdate | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  // undefined: not installing; null: downloading with unknown size.
+  const [updateProgress, setUpdateProgress] = useState<number | null>();
   const alive = useRef(true);
   const message = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -203,6 +210,19 @@ export default function App() {
       .catch((e) => {
         if (alive.current) setError(String(e));
       });
+    api
+      .version()
+      .then((data) => {
+        if (alive.current) setVersion(data);
+      })
+      .catch(() => {});
+    // Silent at startup: being offline must not show an error.
+    api
+      .checkUpdate()
+      .then((data) => {
+        if (alive.current) setUpdate(data);
+      })
+      .catch(() => {});
     return () => {
       alive.current = false;
     };
@@ -447,6 +467,37 @@ export default function App() {
     );
     setPaneId(next.id);
   };
+  const checkUpdate = async () => {
+    setCheckingUpdate(true);
+    setError("");
+    setNotice("");
+    try {
+      const found = await api.checkUpdate();
+      if (!alive.current) return;
+      setUpdate(found);
+      if (!found) setNotice("RunTerm est à jour.");
+    } catch (e) {
+      if (alive.current)
+        setError(`Impossible de vérifier les mises à jour : ${String(e)}`);
+    } finally {
+      if (alive.current) setCheckingUpdate(false);
+    }
+  };
+  const installUpdate = async () => {
+    // The installer closes RunTerm without going through onCloseRequested.
+    if (!update || dirty) return;
+    setError("");
+    setUpdateProgress(null);
+    try {
+      await update.install((percent) => {
+        if (alive.current) setUpdateProgress(percent);
+      });
+    } catch (e) {
+      if (!alive.current) return;
+      setUpdateProgress(undefined);
+      setError(`La mise à jour a échoué : ${String(e)}`);
+    }
+  };
   const list = view === "projects" ? config.projects : config.templates;
   const custom = project && selectedPane && project.overrides[selectedPane.id];
   return (
@@ -548,8 +599,20 @@ export default function App() {
             Windows Terminal + WSL
             <small>
               {desktop ? "Environnement local" : "Aperçu navigateur"}
+              {version && ` · v${version}`}
             </small>
           </div>
+          {desktop && (
+            <button
+              className="icon-button update-check"
+              aria-label="Rechercher une mise à jour"
+              title="Rechercher une mise à jour"
+              disabled={checkingUpdate || updateProgress !== undefined}
+              onClick={checkUpdate}
+            >
+              <RefreshCw size={14} className={checkingUpdate ? "spin" : ""} />
+            </button>
+          )}
         </div>
       </aside>
       <main className="main">
@@ -564,6 +627,42 @@ export default function App() {
             {dirty ? "Modifications non enregistrées" : "À jour"}
           </div>
         </header>
+        {update && (
+          <div className="update-banner" role="status">
+            <span>
+              <strong>RunTerm {update.version} est disponible</strong> (version
+              actuelle {update.currentVersion}).
+              {dirty &&
+                updateProgress === undefined &&
+                " Enregistrez vos modifications avant de l’installer."}
+            </span>
+            {updateProgress === undefined ? (
+              <span className="update-actions">
+                <button
+                  className="button primary small"
+                  disabled={dirty}
+                  onClick={installUpdate}
+                >
+                  <Download size={14} /> Installer et redémarrer
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="Ignorer la mise à jour"
+                  onClick={() => setUpdate(null)}
+                >
+                  <X size={15} />
+                </button>
+              </span>
+            ) : (
+              <span className="update-actions">
+                <LoaderCircle className="spin" size={14} />
+                {updateProgress === null
+                  ? "Téléchargement…"
+                  : `Téléchargement… ${Math.round(updateProgress)} %`}
+              </span>
+            )}
+          </div>
+        )}
         {!desktop && (
           <div className="preview-banner">
             Aperçu de l’éditeur · Les configurations sont sauvegardées dans ce

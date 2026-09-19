@@ -73,7 +73,23 @@ git push origin main v0.2.0
 
 The workflow checks that the tag matches the version in `package.json`, `src-tauri/tauri.conf.json` and both `Cargo.toml` files, runs the tests, builds on Windows and creates the GitHub release with the installer, `RunTerm.exe` and `SHA256SUMS.txt`, plus release notes generated from the commits. A tag with a suffix (`v0.2.0-beta.1`) is published as a prerelease.
 
-Once the updater is enabled, the installer is signed with the `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) repository secrets, and the release also gets the `.sig` file and `latest.json`.
+The installer is signed for the updater with the `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets, and the release also gets the `.sig` file and `latest.json`.
+
+## Automatic updates
+
+RunTerm uses the Tauri updater plugin. At startup, and from the refresh button at the bottom of the sidebar, it reads `https://github.com/mmyumu/runterm/releases/latest/download/latest.json`. When a newer version exists, a banner offers to install it: the app downloads the installer, checks its signature against the public key in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`), then runs it in passive mode and restarts. Installing is disabled while there are unsaved changes, because the installer closes the app. A failed check at startup (offline, for example) stays silent.
+
+Setting up the signing key (once):
+
+```bash
+npx tauri signer generate -w ~/.tauri/runterm.key     # asks for a password
+gh secret set TAURI_SIGNING_PRIVATE_KEY -R mmyumu/runterm < ~/.tauri/runterm.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD -R mmyumu/runterm   # prompts for the password
+```
+
+Then put the content of `~/.tauri/runterm.key.pub` into `plugins.updater.pubkey`. Back up the private key and its password: installed versions only accept updates signed with that key, so losing it means users have to reinstall manually.
+
+Builds without the key (`checks.yml`, `scripts/build-windows.cmd` when `TAURI_SIGNING_PRIVATE_KEY` is not set) pass `--no-sign`; their installers work but cannot be served as updates.
 
 ## UI preview under WSL/Linux
 
@@ -94,7 +110,7 @@ cargo clippy -p runterm-core --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-On Windows, also run `cargo check -p runterm`. From WSL, a Windows-targeted type check is possible with `rustup target add x86_64-pc-windows-msvc` then `cargo check -p runterm --target x86_64-pc-windows-msvc`; it does not replace linking, building the installer or actually testing Windows Terminal. The manual test plan is in [docs/windows-validation.md](docs/windows-validation.md).
+On Windows, also run `cargo check -p runterm`. From WSL, use `scripts/build-windows.sh`: a Windows-targeted `cargo check` from Linux fails because a dependency of the updater needs the MSVC tools. Neither replaces actually testing Windows Terminal. The manual test plan is in [docs/windows-validation.md](docs/windows-validation.md).
 
 ## Data and architecture
 

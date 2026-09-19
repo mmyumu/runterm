@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
-afterEach(cleanup);
+import { api } from "./api";
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 beforeEach(() => localStorage.clear());
 it("crée et sauvegarde un projet avec une commande personnalisée", async () => {
   const user = userEvent.setup();
@@ -103,4 +107,58 @@ it("réordonne les projets au clavier", async () => {
     "Second",
     "Nouveau projet",
   ]);
+});
+it("propose la mise à jour disponible et l’installe", async () => {
+  const install = vi.fn(async (onProgress: (p: number | null) => void) => {
+    onProgress(42);
+    await new Promise(() => {});
+  });
+  vi.spyOn(api, "checkUpdate").mockResolvedValue({
+    version: "0.2.0",
+    currentVersion: "0.1.0",
+    install,
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  expect(await screen.findByText("RunTerm 0.2.0 est disponible")).toBeTruthy();
+  await user.click(
+    screen.getByRole("button", { name: "Installer et redémarrer" }),
+  );
+  expect(install).toHaveBeenCalledOnce();
+  expect(await screen.findByText("Téléchargement… 42 %")).toBeTruthy();
+});
+it("bloque l’installation tant que des modifications ne sont pas enregistrées", async () => {
+  const install = vi.fn();
+  vi.spyOn(api, "checkUpdate").mockResolvedValue({
+    version: "0.2.0",
+    currentVersion: "0.1.0",
+    install,
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Créer mon premier projet" }),
+  );
+  const button = screen.getByRole("button", {
+    name: "Installer et redémarrer",
+  }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  expect(
+    screen.getByText(/Enregistrez vos modifications avant de l’installer/),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() => expect(button.disabled).toBe(false));
+});
+it("ignore une mise à jour proposée", async () => {
+  vi.spyOn(api, "checkUpdate").mockResolvedValue({
+    version: "0.2.0",
+    currentVersion: "0.1.0",
+    install: vi.fn(),
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Ignorer la mise à jour" }),
+  );
+  expect(screen.queryByText("RunTerm 0.2.0 est disponible")).toBeNull();
 });

@@ -28,5 +28,10 @@ set "npm_config_cache=%CD%\.npm-cache"
 
 call npm.cmd ci
 if errorlevel 1 exit /b 1
-call npm.cmd run tauri -- build
+rem Without the updater key the installer is built unsigned and cannot be served as an update.
+if defined TAURI_SIGNING_PRIVATE_KEY (
+  call npm.cmd run tauri -- build
+) else (
+  call npm.cmd run tauri -- build --no-sign
+)
 exit /b %ERRORLEVEL%

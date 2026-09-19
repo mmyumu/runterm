@@ -37,7 +37,8 @@ jobs:
       - run: npm run check
       - run: cargo test -p runterm-core --locked
       - run: cargo test -p runterm --locked
-      - run: npm run tauri -- build
+      # Updater signing needs the release key; releases are built by release.yml.
+      - run: npm run tauri -- build --no-sign
       - uses: actions/upload-artifact@v4
         with:
           name: RunTerm-windows-installer

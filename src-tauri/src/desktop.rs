@@ -236,6 +236,7 @@ async fn launch_project(config: Config, project_id: String) -> Result<(), String
 }
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Storage(Mutex::new(())))
         .invoke_handler(tauri::generate_handler![
             load_config,

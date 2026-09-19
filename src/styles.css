@@ -265,6 +265,28 @@ nav {
   font-size: 10px;
   line-height: 1.5;
 }
+.update-check {
+  margin-left: auto;
+  color: #a0b4a9;
+}
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 38px;
+  background: #e5f0e7;
+  color: #2f5a41;
+  border-bottom: 1px solid #cfe2d3;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .page-content {
   max-width: 1530px;
   margin: auto;

@@ -2,6 +2,12 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { type Config, initialConfig, validateConfig } from "./model";
 export const desktop = isTauri();
 const key = "runterm-preview-v1";
+export type AvailableUpdate = {
+  version: string;
+  currentVersion: string;
+  /** Downloads, then runs the installer; on Windows the app exits and the installer restarts it. */
+  install(onProgress: (percent: number | null) => void): Promise<void>;
+};
 export const api = {
   async load(): Promise<Config> {
     const data = desktop
@@ -28,5 +34,30 @@ export const api = {
         "Le lancement est disponible dans l’application Windows. Cette page est un aperçu de l’éditeur.",
       );
     await invoke("launch_project", { config, projectId });
+  },
+  version: () =>
+    desktop
+      ? import("@tauri-apps/api/app").then(({ getVersion }) => getVersion())
+      : Promise.resolve(null),
+  async checkUpdate(): Promise<AvailableUpdate | null> {
+    if (!desktop) return null;
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (!update) return null;
+    return {
+      version: update.version,
+      currentVersion: update.currentVersion,
+      async install(onProgress) {
+        let total = 0;
+        let received = 0;
+        await update.downloadAndInstall((event) => {
+          if (event.event === "Started") total = event.data.contentLength ?? 0;
+          else if (event.event === "Progress") {
+            received += event.data.chunkLength;
+            onProgress(total ? Math.min(100, (received / total) * 100) : null);
+          }
+        });
+      },
+    };
   },
 };
