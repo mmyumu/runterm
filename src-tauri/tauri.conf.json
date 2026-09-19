@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "RunTerm", "version": "0.2.0", "identifier": "dev.runterm.desktop",
+  "productName": "RunTerm", "version": "1.0.0", "identifier": "dev.runterm.desktop",
   "build": {"beforeDevCommand":"npm run dev", "devUrl":"http://localhost:1420", "beforeBuildCommand":"npm run build", "frontendDist":"../dist"},
   "app": {"windows":[{"label":"main","title":"RunTerm","width":1280,"height":850,"minWidth":960,"minHeight":650,"dragDropEnabled":false}],"security":{"csp":"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"}},
   "bundle": {"active":true,"createUpdaterArtifacts":true,"targets":["nsis"],"icon":["icons/icon.ico"],"windows":{"nsis":{"languages":["French"],"displayLanguageSelector":false}}},
