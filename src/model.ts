@@ -4,7 +4,10 @@ export type Pane = {
   name: string;
   directory: string;
   commands: string[];
+  /** Absent: Bash in WSL. PowerShell runs on Windows in the same folder. */
+  shell?: Shell;
 };
+export type Shell = "bash" | "powershell";
 export type Split = {
   kind: "split";
   id: string;
@@ -28,6 +31,8 @@ export type Project = {
   terminalProfile?: string;
   templateId: string;
   overrides: Record<string, PaneOverride>;
+  /** Started by the "launch all" buttons; absent: not started. */
+  launchAll?: boolean;
 };
 export type Config = {
   schemaVersion: number;

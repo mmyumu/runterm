@@ -172,7 +172,7 @@ nav {
   font-size: 12px;
   margin: 3px 0;
 }
-.sidebar-entry > span:nth-child(2) {
+.entry-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -191,6 +191,61 @@ nav {
 .entry-icon {
   color: #92ad95;
   display: flex;
+}
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-row .sidebar-entry {
+  min-width: 0;
+}
+.launch-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #4c6559;
+}
+.launch-toggle:hover {
+  background: #1b2c24;
+  color: #92ad95;
+}
+.launch-toggle.on {
+  color: #6db093;
+}
+.launch-all {
+  border-top: 1px solid #263b30;
+  padding: 14px 0 16px;
+}
+.launch-all-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #698175;
+  margin-bottom: 9px;
+}
+.launch-all-caption span {
+  letter-spacing: 0;
+  color: #92ad95;
+}
+.launch-all-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.launch-all-buttons .button {
+  flex: 1 1 70px;
+  min-height: 32px;
+  padding: 7px 8px;
+  gap: 6px;
 }
 .sidebar-empty {
   font-size: 11px;
@@ -1092,4 +1147,13 @@ textarea {
   .template-help {
     padding: 0;
   }
+}
+.shell-tag {
+  font-family: Consolas, monospace;
+  font-size: 7px;
+  color: #8fb3d9;
+  border: 1px solid #8fb3d955;
+  border-radius: 3px;
+  padding: 0 3px;
+  letter-spacing: 0.5px;
 }

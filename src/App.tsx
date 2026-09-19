@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AppWindow,
   ArrowDown,
   ArrowUp,
   Check,
@@ -7,11 +8,11 @@ import {
   Columns2,
   Copy,
   Download,
-  Folder,
   FolderOpen,
   Layers,
   LayoutTemplate,
   LoaderCircle,
+  PanelTop,
   Play,
   Plus,
   RefreshCw,
@@ -23,7 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type AvailableUpdate, api, desktop } from "./api";
+import { type AvailableUpdate, type LaunchMode, api, desktop } from "./api";
 import {
   type Config,
   type Layout,
@@ -42,6 +43,12 @@ import {
   validateConfig,
 } from "./model";
 
+function shellLabel(items: Pane[]) {
+  const powershell = items.filter((p) => p.shell === "powershell").length;
+  if (!powershell) return "BASH / WSL";
+  return powershell === items.length ? "POWERSHELL" : "BASH / WSL + POWERSHELL";
+}
+
 function LayoutPreview({
   node,
   selected,
@@ -59,6 +66,7 @@ function LayoutPreview({
 }) {
   if (node.kind === "pane") {
     const pane = effectivePane(node, project);
+    const powershell = pane.shell === "powershell";
     return (
       <button
         type="button"
@@ -69,7 +77,12 @@ function LayoutPreview({
         <span className="pane-bar">
           <span className="pane-dot" />
           <span>{pane.name}</span>
-          {!compact && <Terminal size={13} />}
+          {!compact &&
+            (powershell ? (
+              <span className="shell-tag">PS</span>
+            ) : (
+              <Terminal size={13} />
+            ))}
         </span>
         {!compact && (
           <span className="pane-content">
@@ -77,7 +90,7 @@ function LayoutPreview({
               ~/ {pane.directory === "." ? "projet" : pane.directory}
             </span>
             <span className="pane-command">
-              <span className="prompt">❯</span>{" "}
+              <span className="prompt">{powershell ? "PS>" : "❯"}</span>{" "}
               {pane.commands[0] || (
                 <span className="muted">shell interactif</span>
               )}
@@ -165,6 +178,33 @@ function LayoutPreview({
   );
 }
 
+function LaunchToggle({
+  name,
+  on,
+  onToggle,
+}: {
+  name: string;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`launch-toggle ${on ? "on" : ""}`}
+      aria-pressed={on}
+      aria-label={`Inclure ${name} dans « Tout lancer »`}
+      title={
+        on
+          ? "Lancé par « Tout lancer » (cliquer pour retirer)"
+          : "Non lancé par « Tout lancer » (cliquer pour ajouter)"
+      }
+      onClick={onToggle}
+    >
+      <Play size={13} fill={on ? "currentColor" : "none"} />
+    </button>
+  );
+}
+
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [baseline, setBaseline] = useState("");
@@ -175,7 +215,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState<"save" | "launch" | null>(null);
+  // "launch": the edited project; a mode: the "launch all" buttons.
+  const [busy, setBusy] = useState<"save" | "launch" | LaunchMode | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
@@ -472,7 +513,8 @@ export default function App() {
     setSelectedId("");
     setDeleting(false);
   };
-  const save = async (launch = false) => {
+  /** Saves, then launches `launch` when given: the backend reads the saved state. */
+  const save = async (launch?: { all: boolean; mode: LaunchMode }) => {
     if (busy) return;
     const invalid = validateConfig(config);
     if (invalid) {
@@ -480,15 +522,27 @@ export default function App() {
       return;
     }
     const snapshot = config;
-    setBusy(launch ? "launch" : "save");
+    const ids = !launch
+      ? []
+      : launch.all
+        ? snapshot.projects.filter((p) => p.launchAll).map((p) => p.id)
+        : project
+          ? [project.id]
+          : [];
+    if (launch && !ids.length) return;
+    setBusy(!launch ? "save" : launch.all ? launch.mode : "launch");
     setError("");
     setNotice("");
     try {
       await api.save(snapshot);
       setBaseline(JSON.stringify(snapshot));
-      if (launch && project) {
-        await api.launch(snapshot, project.id);
-        setNotice("Demande de lancement transmise à Windows Terminal.");
+      if (launch) {
+        await api.launch(snapshot, ids, launch.mode);
+        setNotice(
+          ids.length > 1
+            ? `Lancement de ${ids.length} projets transmis à Windows Terminal.`
+            : "Demande de lancement transmise à Windows Terminal.",
+        );
       } else setNotice("Modifications enregistrées.");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -543,6 +597,14 @@ export default function App() {
     }
   };
   const list = view === "projects" ? config.projects : config.templates;
+  const launchCount = config.projects.filter((p) => p.launchAll).length;
+  const toggleLaunchAll = (id: string) =>
+    mutate((data) => ({
+      ...data,
+      projects: data.projects.map((p) =>
+        p.id === id ? { ...p, launchAll: !p.launchAll || undefined } : p,
+      ),
+    }));
   const custom = project && selectedPane && project.overrides[selectedPane.id];
   return (
     <div className="app-shell">
@@ -587,56 +649,109 @@ export default function App() {
         </div>
         <div className="sidebar-list">
           {list.map((item) => (
-            <button
-              key={item.id}
-              className={`sidebar-entry ${selectedId === item.id ? "current" : ""} ${dragId === item.id ? "dragging" : ""}`}
-              title="Glisser pour réordonner (ou Alt + ↑ / ↓)"
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", item.id);
-                setDragId(item.id);
-              }}
-              onDragOver={(e) => {
-                if (!dragId) return;
-                e.preventDefault();
-                if (dragId !== item.id) reorder(dragId, item.id);
-              }}
-              onDrop={(e) => e.preventDefault()}
-              onDragEnd={() => setDragId("")}
-              onKeyDown={(e) => {
-                if (!e.altKey) return;
-                const index = list.findIndex((other) => other.id === item.id);
-                const target =
-                  e.key === "ArrowUp"
-                    ? list[index - 1]
-                    : e.key === "ArrowDown"
-                      ? list[index + 1]
-                      : undefined;
-                if (!target) return;
-                e.preventDefault();
-                reorder(item.id, target.id);
-              }}
-              onClick={() => {
-                setSelectedId(item.id);
-                setPaneId("");
-              }}
-            >
-              <span className="entry-icon">
-                {view === "projects" ? (
-                  <Folder size={16} />
-                ) : (
-                  <Layers size={16} />
+            <div key={item.id} className="sidebar-row">
+              {view === "projects" && (
+                <LaunchToggle
+                  name={item.name}
+                  on={!!(item as Project).launchAll}
+                  onToggle={() => toggleLaunchAll(item.id)}
+                />
+              )}
+              <button
+                className={`sidebar-entry ${selectedId === item.id ? "current" : ""} ${dragId === item.id ? "dragging" : ""}`}
+                title="Glisser pour réordonner (ou Alt + ↑ / ↓)"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", item.id);
+                  setDragId(item.id);
+                }}
+                onDragOver={(e) => {
+                  if (!dragId) return;
+                  e.preventDefault();
+                  if (dragId !== item.id) reorder(dragId, item.id);
+                }}
+                onDrop={(e) => e.preventDefault()}
+                onDragEnd={() => setDragId("")}
+                onKeyDown={(e) => {
+                  if (!e.altKey) return;
+                  const index = list.findIndex((other) => other.id === item.id);
+                  const target =
+                    e.key === "ArrowUp"
+                      ? list[index - 1]
+                      : e.key === "ArrowDown"
+                        ? list[index + 1]
+                        : undefined;
+                  if (!target) return;
+                  e.preventDefault();
+                  reorder(item.id, target.id);
+                }}
+                onClick={() => {
+                  setSelectedId(item.id);
+                  setPaneId("");
+                }}
+              >
+                {view === "templates" && (
+                  <span className="entry-icon">
+                    <Layers size={16} />
+                  </span>
                 )}
-              </span>
-              <span>{item.name}</span>
-              {selectedId === item.id && <ChevronRight size={14} />}
-            </button>
+                <span className="entry-name">{item.name}</span>
+                {selectedId === item.id && <ChevronRight size={14} />}
+              </button>
+            </div>
           ))}
           {!list.length && (
             <p className="sidebar-empty">Vos projets, prêts à démarrer.</p>
           )}
         </div>
+        {view === "projects" && config.projects.length > 0 && (
+          <div className="launch-all" role="group" aria-label="Tout lancer">
+            <div className="launch-all-caption">
+              TOUT LANCER
+              <span>
+                {launchCount
+                  ? `${launchCount} projet${launchCount > 1 ? "s" : ""}`
+                  : "Aucun projet activé"}
+              </span>
+            </div>
+            <div className="launch-all-buttons">
+              {(
+                [
+                  [
+                    "tabs",
+                    "Onglets",
+                    PanelTop,
+                    "une fenêtre, un onglet par projet",
+                  ],
+                  ["windows", "Fenêtres", AppWindow, "une fenêtre par projet"],
+                ] as const
+              ).map(([mode, label, Icon, detail]) => (
+                <button
+                  key={mode}
+                  className="button primary"
+                  disabled={!launchCount || !!busy || !desktop}
+                  aria-label={`Tout lancer en ${label.toLowerCase()}`}
+                  title={
+                    !desktop
+                      ? "Disponible dans l’application Windows"
+                      : !launchCount
+                        ? "Activez ▶ devant les projets à lancer"
+                        : `Enregistrer et lancer les projets activés : ${detail}`
+                  }
+                  onClick={() => void save({ all: true, mode })}
+                >
+                  {busy === mode ? (
+                    <LoaderCircle className="spin" size={14} />
+                  ) : (
+                    <Icon size={14} />
+                  )}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="sidebar-bottom">
           <span className="status-dot" />
           <div>
@@ -968,7 +1083,9 @@ export default function App() {
                         <span className="status-dot" />{" "}
                         {project?.name ?? template.name}
                       </span>
-                      <span className="terminal-label">BASH / WSL</span>
+                      <span className="terminal-label">
+                        {shellLabel(allPanes)}
+                      </span>
                     </div>
                     <div className="layout-canvas">
                       <LayoutPreview
@@ -1044,13 +1161,36 @@ export default function App() {
                         </span>
                       </div>
                       {!project && (
-                        <label>
-                          Nom du panneau
-                          <input
-                            value={effective.name}
-                            onChange={(e) => editPane({ name: e.target.value })}
-                          />
-                        </label>
+                        <>
+                          <label>
+                            Nom du panneau
+                            <input
+                              value={effective.name}
+                              onChange={(e) =>
+                                editPane({ name: e.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Shell
+                            <select
+                              value={effective.shell ?? "bash"}
+                              onChange={(e) =>
+                                editPane({
+                                  shell:
+                                    e.target.value === "powershell"
+                                      ? "powershell"
+                                      : undefined,
+                                })
+                              }
+                            >
+                              <option value="bash">Bash (WSL)</option>
+                              <option value="powershell">
+                                PowerShell (Windows)
+                              </option>
+                            </select>
+                          </label>
+                        </>
                       )}
                       <label>
                         Répertoire relatif
@@ -1066,6 +1206,14 @@ export default function App() {
                       <p className="field-hint">
                         Relatif au dossier du projet. <code>.</code> utilise sa
                         racine.
+                        {effective.shell === "powershell" && (
+                          <>
+                            {" "}
+                            PowerShell l’ouvre depuis Windows via{" "}
+                            <code>\\wsl.localhost</code> ; les outils lancés par{" "}
+                            <code>cmd.exe</code> ne gèrent pas ce chemin.
+                          </>
+                        )}
                       </p>
                       <div className="actions-heading">
                         <label>Actions au lancement</label>
@@ -1131,7 +1279,11 @@ export default function App() {
                               aria-label={`Commande ${index + 1}`}
                               value={command}
                               spellCheck={false}
-                              placeholder="Votre commande Bash…"
+                              placeholder={
+                                effective.shell === "powershell"
+                                  ? "Votre commande PowerShell…"
+                                  : "Votre commande Bash…"
+                              }
                               onChange={(e) =>
                                 editPane({
                                   commands: effective.commands.map((c, i) =>
@@ -1212,7 +1364,7 @@ export default function App() {
                           ? "Disponible dans l’application Windows"
                           : "Enregistrer et lancer le projet"
                       }
-                      onClick={() => void save(true)}
+                      onClick={() => void save({ all: false, mode: "windows" })}
                     >
                       {busy === "launch" ? (
                         <LoaderCircle className="spin" size={16} />

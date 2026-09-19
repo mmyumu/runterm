@@ -163,26 +163,48 @@ async fn list_directories(distribution: String, path: String) -> Result<Vec<Stri
         .await
         .map_err(|e| e.to_string())?
 }
-fn launch(config: Config, project_id: String) -> Result<(), String> {
-    let (project, template, panes) = config.resolve(&project_id)?;
-    execute("where.exe", &["wt.exe".into()], None).map_err(|_| {
-        "Windows Terminal est introuvable. Installez-le et activez son alias wt.exe.".to_string()
-    })?;
-    let available = distributions()?;
-    if available.is_empty() {
-        return Err("Aucune distribution WSL installée.".into());
+/// A project ready to open: its scripts are written, nothing is started yet.
+struct Prepared {
+    layout: core::Layout,
+    /// As configured: empty means the default distribution.
+    distribution: String,
+    profile: String,
+    launches: BTreeMap<String, core::PaneLaunch>,
+    /// Temporary folder holding the Bash scripts.
+    folder: Option<String>,
+}
+impl Prepared {
+    fn tab(&self) -> core::TabLaunch<'_> {
+        core::TabLaunch {
+            layout: &self.layout,
+            distribution: &self.distribution,
+            profile: &self.profile,
+            launches: &self.launches,
+        }
     }
+    /// Removes the scripts of a project that will not be started.
+    fn discard(&self) {
+        if let Some(folder) = &self.folder {
+            let _ = wsl(&self.distribution, &["rm", "-rf", "--", folder], None);
+        }
+    }
+}
+fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Prepared, String> {
+    let (project, template, panes) = config.resolve(project_id)?;
     if !project.distribution.is_empty() && !available.contains(&project.distribution) {
         return Err("La distribution WSL sélectionnée est introuvable.".into());
     }
     // Without an explicit profile: `wsl --list` puts the default distribution
     // first, and Windows Terminal names WSL profiles after their distribution.
-    let profile = if !project.terminal_profile.is_empty() {
-        project.terminal_profile.clone()
-    } else if project.distribution.is_empty() {
-        available[0].clone()
+    let distribution = if project.distribution.is_empty() {
+        &available[0]
     } else {
-        project.distribution.clone()
+        &project.distribution
+    };
+    let profile = if project.terminal_profile.is_empty() {
+        distribution.clone()
+    } else {
+        project.terminal_profile.clone()
     };
     for pane in &panes {
         wsl(
@@ -205,6 +227,33 @@ fn launch(config: Config, project_id: String) -> Result<(), String> {
             )
         })?;
     }
+    // PowerShell 7 when installed, otherwise the built-in Windows PowerShell.
+    let pwsh = panes.iter().any(|p| p.shell == core::Shell::Powershell)
+        && execute("where.exe", &["pwsh.exe".into()], None).is_ok();
+    let launches: BTreeMap<String, core::PaneLaunch> = panes
+        .iter()
+        .filter(|p| p.shell == core::Shell::Powershell)
+        .map(|p| {
+            // The Linux folder, reached from Windows through \\wsl.localhost.
+            let directory = core::wsl_windows_path(distribution, &p.directory);
+            let script = core::powershell_script(p, &directory);
+            (p.id.clone(), core::PaneLaunch::Powershell { script, pwsh })
+        })
+        .collect();
+    let mut prepared = Prepared {
+        layout: template.layout.clone(),
+        distribution: project.distribution.clone(),
+        profile,
+        launches,
+        folder: None,
+    };
+    let bash: Vec<_> = panes
+        .iter()
+        .filter(|p| p.shell == core::Shell::Bash)
+        .collect();
+    if bash.is_empty() {
+        return Ok(prepared);
+    }
     let folder = wsl(
         &project.distribution,
         &[
@@ -225,9 +274,9 @@ fn launch(config: Config, project_id: String) -> Result<(), String> {
     {
         return Err("WSL a retourné un chemin temporaire inattendu.".into());
     }
-    let prepared = (|| {
-        let mut scripts = BTreeMap::new();
-        for pane in &panes {
+    prepared.folder = Some(folder.clone());
+    let written = (|| {
+        for pane in bash {
             let path = format!("{}/{}.sh", folder, uuid::Uuid::new_v4());
             let cleanup = format!(
                 "rm -f -- {}\nrmdir -- {} 2>/dev/null || true\n",
@@ -248,24 +297,86 @@ fn launch(config: Config, project_id: String) -> Result<(), String> {
                 ],
                 Some(script.as_bytes()),
             )?;
-            scripts.insert(pane.id.clone(), path);
+            prepared
+                .launches
+                .insert(pane.id.clone(), core::PaneLaunch::Bash(path));
         }
-        core::terminal_args(&template.layout, &project.distribution, &profile, &scripts)
+        // Fails early on a layout Windows Terminal cannot receive.
+        core::tabs_args(&[prepared.tab()]).map(drop)
     })();
-    let args = match prepared {
-        Ok(args) => args,
+    match written {
+        Ok(()) => Ok(prepared),
         Err(e) => {
-            let _ = wsl(&project.distribution, &["rm", "-rf", "--", &folder], None);
-            return Err(e);
+            prepared.discard();
+            Err(e)
         }
-    };
+    }
+}
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum LaunchMode {
+    /// One window with a tab per project.
+    Tabs,
+    /// One window per project.
+    Windows,
+}
+/// Prepares every project before opening anything: one failure starts none.
+fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<(), String> {
+    config.validate()?;
+    if project_ids.is_empty() {
+        return Err("Aucun projet à lancer.".into());
+    }
+    execute("where.exe", &["wt.exe".into()], None).map_err(|_| {
+        "Windows Terminal est introuvable. Installez-le et activez son alias wt.exe.".to_string()
+    })?;
+    let available = distributions()?;
+    if available.is_empty() {
+        return Err("Aucune distribution WSL installée.".into());
+    }
+    let mut prepared: Vec<Prepared> = Vec::new();
+    for id in &project_ids {
+        match prepare(&config, id, &available) {
+            Ok(p) => prepared.push(p),
+            Err(e) => {
+                prepared.iter().for_each(Prepared::discard);
+                let name = config.projects.iter().find(|p| &p.id == id);
+                return Err(match name {
+                    Some(p) if project_ids.len() > 1 => format!("{} : {e}", p.name),
+                    _ => e,
+                });
+            }
+        }
+    }
     // wt returns after dispatch; application processes are owned by Windows Terminal.
-    execute("wt.exe", &args, None)?;
+    match mode {
+        LaunchMode::Tabs => {
+            let tabs: Vec<_> = prepared.iter().map(Prepared::tab).collect();
+            let started = core::tabs_args(&tabs).and_then(|args| execute("wt.exe", &args, None));
+            if let Err(e) = started {
+                prepared.iter().for_each(Prepared::discard);
+                return Err(e);
+            }
+        }
+        LaunchMode::Windows => {
+            for (index, project) in prepared.iter().enumerate() {
+                let started = core::tabs_args(&[project.tab()])
+                    .and_then(|args| execute("wt.exe", &args, None));
+                if let Err(e) = started {
+                    prepared[index..].iter().for_each(Prepared::discard);
+                    return Err(e);
+                }
+            }
+        }
+    }
     Ok(())
 }
 #[tauri::command]
-async fn launch_project(config: Config, project_id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || launch(config, project_id))
+async fn launch_projects(
+    config: Config,
+    project_ids: Vec<String>,
+    mode: LaunchMode,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || launch(config, project_ids, mode))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -278,7 +389,7 @@ pub fn run() {
             save_config,
             list_distributions,
             list_directories,
-            launch_project
+            launch_projects
         ])
         .run(tauri::generate_context!())
         .expect("Impossible de démarrer RunTerm");
@@ -328,6 +439,7 @@ mod tests {
                     core::shell_quote(&format!("{folder}/release"))
                 ),
             ],
+            shell: core::Shell::Bash,
         };
         let split = |id: &str, axis, first, second| Layout::Split {
             id: id.into(),
@@ -363,10 +475,11 @@ mod tests {
                 terminal_profile: String::new(),
                 template_id: "t".into(),
                 overrides: BTreeMap::new(),
+                launch_all: false,
             }],
         };
         let result = (|| -> Result<(), String> {
-            launch(config, "p".into())?;
+            launch(config, vec!["p".into()], LaunchMode::Windows)?;
             wsl("", &["bash", "--noprofile", "--norc", "-c", "for ((n=0;n<40;n++)); do if [[ -s $1/a && -s $1/b && -s $1/c && -s $1/d && -s $1/e ]]; then exit 0; fi; sleep .25; done; exit 1", "runterm", &folder], None)?;
             for id in ["a", "b", "c", "d", "e"] {
                 let content = wsl("", &["cat", &format!("{folder}/{id}")], None)?;

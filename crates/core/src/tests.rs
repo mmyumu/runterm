@@ -5,6 +5,7 @@ fn pane(id: &str) -> Layout {
         name: id.into(),
         directory: ".".into(),
         commands: vec!["echo ok".into()],
+        shell: Shell::Bash,
     }
 }
 fn config() -> Config {
@@ -24,6 +25,7 @@ fn config() -> Config {
             terminal_profile: String::new(),
             template_id: "t".into(),
             overrides: BTreeMap::new(),
+            launch_all: false,
         }],
     }
 }
@@ -76,13 +78,21 @@ fn nested_layout_navigation() {
         second: Box::new(pane("c")),
     };
     let scripts = ["a", "b", "c"]
-        .map(|id| (id.into(), format!("/tmp/runterm-test/{id}.sh")))
+        .map(|id| {
+            (
+                id.into(),
+                PaneLaunch::Bash(format!("/tmp/runterm-test/{id}.sh")),
+            )
+        })
         .into();
     let args = terminal_args(&l, "Ubuntu", "Ubuntu", &scripts).unwrap();
     assert_eq!(args.iter().filter(|a| *a == "split-pane").count(), 2);
     assert!(args.windows(3).any(|a| a == ["-H", "--size", "0.600000"]));
     assert!(args.windows(3).any(|a| a == ["-V", "--size", "0.300000"]));
-    assert!(args.iter().any(|a| a == "previousInOrder"));
+    // Every split targets its pane by id rather than trusting the current focus.
+    for i in (0..args.len()).filter(|&i| args[i] == "split-pane") {
+        assert_eq!(args[i - 4..i - 2], ["focus-pane", "--target"]);
+    }
     // Programs (e.g. Claude Code) must be able to update the tab title.
     assert!(args.iter().all(|a| a != "--suppressApplicationTitle"));
     assert_eq!(
@@ -102,15 +112,6 @@ fn simulate_windows_terminal(args: &[String]) -> String {
     enum Node {
         Leaf(String),
         Split(String, String, Box<Node>, Box<Node>),
-    }
-    fn leaves(n: &Node, out: &mut Vec<String>) {
-        match n {
-            Node::Leaf(t) => out.push(t.clone()),
-            Node::Split(_, _, a, b) => {
-                leaves(a, out);
-                leaves(b, out);
-            }
-        }
     }
     fn split(n: &mut Node, target: &str, dir: &str, size: &str, title: &str) {
         match n {
@@ -137,15 +138,17 @@ fn simulate_windows_terminal(args: &[String]) -> String {
         }
     }
     let title = |c: &[String]| c[c.iter().position(|a| a == "--title").unwrap() + 1].clone();
-    let (mut root, mut focused) = (None::<Node>, String::new());
+    // Pane ids, numbered per tab in creation order.
+    let (mut root, mut ids, mut focused) = (None::<Node>, Vec::new(), String::new());
     for command in args.split(|a| a == ";") {
         match command
             .iter()
-            .position(|a| a == "new-tab" || a == "split-pane" || a == "move-focus")
+            .position(|a| a == "new-tab" || a == "split-pane" || a == "focus-pane")
         {
             Some(i) if command[i] == "new-tab" => {
                 focused = title(command);
                 root = Some(Node::Leaf(focused.clone()));
+                ids = vec![focused.clone()];
             }
             Some(i) if command[i] == "split-pane" => {
                 let new = title(command);
@@ -156,18 +159,12 @@ fn simulate_windows_terminal(args: &[String]) -> String {
                     &command[i + 3],
                     &new,
                 );
+                ids.push(new.clone());
                 focused = new;
             }
             Some(i) => {
-                let mut order = Vec::new();
-                leaves(root.as_ref().unwrap(), &mut order);
-                let at = order.iter().position(|t| *t == focused).unwrap();
-                let len = order.len();
-                focused = match command[i + 1].as_str() {
-                    "nextInOrder" => order[(at + 1) % len].clone(),
-                    "previousInOrder" => order[(at + len - 1) % len].clone(),
-                    other => panic!("direction inattendue {other}"),
-                };
+                assert_eq!(command[i + 1], "--target");
+                focused = ids[command[i + 2].parse::<usize>().unwrap()].clone();
             }
             None => panic!("commande inattendue {command:?}"),
         }
@@ -248,7 +245,12 @@ fn terminal_args_reproduce_layout_tree() {
         collect(&l, &mut ids);
         let scripts = ids
             .iter()
-            .map(|id| (id.clone(), format!("/tmp/runterm-test/{id}.sh")))
+            .map(|id| {
+                (
+                    id.clone(),
+                    PaneLaunch::Bash(format!("/tmp/runterm-test/{id}.sh")),
+                )
+            })
             .collect();
         let args = terminal_args(&l, "Ubuntu", "Ubuntu", &scripts).unwrap();
         assert_eq!(
@@ -287,6 +289,131 @@ fn workspace_root_is_optional_and_validated() {
     }
 }
 #[test]
+fn shell_defaults_to_bash_and_is_omitted() {
+    let mut c = config();
+    let json = serde_json::to_string(&c).unwrap();
+    assert!(!json.contains("shell"));
+    assert_eq!(serde_json::from_str::<Config>(&json).unwrap(), c);
+    let Layout::Pane { shell, .. } = &mut c.templates[0].layout else {
+        unreachable!()
+    };
+    *shell = Shell::Powershell;
+    let json = serde_json::to_string(&c).unwrap();
+    assert!(json.contains(r#""shell":"powershell""#));
+    assert_eq!(serde_json::from_str::<Config>(&json).unwrap(), c);
+    assert_eq!(c.resolve("p").unwrap().2[0].shell, Shell::Powershell);
+}
+#[test]
+fn powershell_quoting_and_paths() {
+    assert_eq!(powershell_quote("it's"), "'it''s'");
+    assert_eq!(powershell_quote("a\u{2019}b"), "'a\u{2019}\u{2019}b'");
+    assert_eq!(powershell_quote("$x `n"), "'$x `n'");
+    assert_eq!(
+        wsl_windows_path("Ubuntu", "/home/me/my project/."),
+        r"\\wsl.localhost\Ubuntu\home\me\my project\."
+    );
+    // `[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(...))`
+    assert_eq!(encode_powershell("a"), "YQA=");
+    assert_eq!(encode_powershell("ab"), "YQBiAA==");
+    assert_eq!(encode_powershell("abc"), "YQBiAGMA");
+    assert_eq!(encode_powershell("é;"), "6QA7AA==");
+}
+#[test]
+fn powershell_panes_use_their_own_program_and_profile() {
+    let l = split(Axis::Columns, pane("a"), pane("b"));
+    let launches = BTreeMap::from([
+        (
+            "a".into(),
+            PaneLaunch::Bash("/tmp/runterm-test/a.sh".into()),
+        ),
+        (
+            "b".into(),
+            PaneLaunch::Powershell {
+                script: "Write-Host 'a ; b'".into(),
+                pwsh: false,
+            },
+        ),
+    ]);
+    let args = terminal_args(&l, "Ubuntu", "Ubuntu", &launches).unwrap();
+    let encoded = encode_powershell("Write-Host 'a ; b'");
+    assert!(args.windows(10).any(|a| a
+        == [
+            "--profile",
+            "Windows PowerShell",
+            "--title",
+            "b",
+            "--",
+            "powershell.exe",
+            "-NoLogo",
+            "-NoExit",
+            "-EncodedCommand",
+            encoded.as_str(),
+        ]));
+    // Windows Terminal would split the command on any `;` argument content.
+    assert!(args.iter().all(|a| a == ";" || !a.contains(';')));
+    assert_eq!(args.iter().filter(|a| *a == "wsl.exe").count(), 1);
+    let pwsh = BTreeMap::from([(
+        "a".into(),
+        PaneLaunch::Powershell {
+            script: String::new(),
+            pwsh: true,
+        },
+    )]);
+    let args = terminal_args(&pane("a"), "", "Ubuntu", &pwsh).unwrap();
+    assert!(args.windows(2).any(|a| a == ["--profile", "PowerShell"]));
+    assert!(args.iter().any(|a| a == "pwsh.exe"));
+    let long = BTreeMap::from([(
+        "a".into(),
+        PaneLaunch::Powershell {
+            script: "x".repeat(20_000),
+            pwsh: false,
+        },
+    )]);
+    assert!(terminal_args(&pane("a"), "", "", &long).is_err());
+}
+#[cfg(windows)]
+#[test]
+fn powershell_sequence_preserves_scope_and_stops_on_failure() {
+    use std::process::Command;
+    let d = tempfile::tempdir().unwrap();
+    let output_file = d.path().join("result ; 'quoted'.txt");
+    let p = ResolvedPane {
+        id: "a".into(),
+        name: "a".into(),
+        directory: String::new(),
+        commands: vec![
+            "$value = 'hello ; world'\nfunction Get-Kept { 'kept' }".into(),
+            format!(
+                "Set-Content -LiteralPath {} -Value \"$value/$(Get-Kept)/$(Split-Path -Leaf $PWD)\"",
+                powershell_quote(output_file.to_str().unwrap())
+            ),
+            "cmd.exe /c exit 3".into(),
+            "Set-Content should-not-exist bad".into(),
+        ],
+        shell: Shell::Powershell,
+    };
+    let script = powershell_script(&p, d.path().to_str().unwrap());
+    let out = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-EncodedCommand",
+            &encode_powershell(&script),
+        ])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&out.stderr).contains("action 3 interrompue (code 3)"));
+    assert_eq!(
+        fs::read_to_string(output_file).unwrap().trim_end(),
+        format!(
+            "hello ; world/kept/{}",
+            d.path().file_name().unwrap().to_str().unwrap()
+        )
+    );
+    assert!(!d.path().join("should-not-exist").exists());
+}
+#[test]
 fn validation_rejects_missing_template_and_invalid_ratios() {
     let mut c = config();
     c.projects[0].template_id = "missing".into();
@@ -321,6 +448,7 @@ fn bash_sequence_preserves_environment_and_stops_on_failure() {
             "false".into(),
             "echo bad > should-not-exist".into(),
         ],
+        shell: Shell::Bash,
     };
     let rc = d.path().join("rc");
     fs::write(&rc, pane_script(&p)).unwrap();
@@ -362,6 +490,7 @@ fn ctrl_c_interrupts_sequence_and_keeps_interactive_prompt() {
             "printf '__READY__\\n'; sleep 30".into(),
             "touch should-not-exist".into(),
         ],
+        shell: Shell::Bash,
     };
     fs::write(&rc, pane_script(&pane)).unwrap();
     let driver = r#"
@@ -423,6 +552,7 @@ fn preserves_array_prompt_hooks_and_runs_startup_only_once() {
         name: "a".into(),
         directory: dir.path().to_str().unwrap().into(),
         commands: vec!["printf x >> count".into()],
+        shell: Shell::Bash,
     };
     fs::write(&rc, pane_script(&pane)).unwrap();
     let mut child = Command::new("bash")
@@ -442,4 +572,90 @@ fn preserves_array_prompt_hooks_and_runs_startup_only_once() {
     let output = child.wait_with_output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("OLD_PROMPT"));
     assert_eq!(fs::read_to_string(dir.path().join("count")).unwrap(), "x");
+}
+#[test]
+fn tabs_args_open_one_tab_per_project() {
+    let split = Layout::Split {
+        id: "s".into(),
+        axis: Axis::Columns,
+        ratio: 0.5,
+        first: Box::new(pane("a")),
+        second: Box::new(pane("b")),
+    };
+    let bash = |ids: &[&str], folder: &str| -> BTreeMap<String, PaneLaunch> {
+        ids.iter()
+            .map(|id| {
+                (
+                    id.to_string(),
+                    PaneLaunch::Bash(format!("/tmp/runterm-{folder}/{id}.sh")),
+                )
+            })
+            .collect()
+    };
+    // Both projects use the same template, hence the same pane ids.
+    let (first, second) = (bash(&["a", "b"], "one"), bash(&["a", "b"], "two"));
+    let args = tabs_args(&[
+        TabLaunch {
+            layout: &split,
+            distribution: "Ubuntu",
+            profile: "Ubuntu",
+            launches: &first,
+        },
+        TabLaunch {
+            layout: &split,
+            distribution: "Debian",
+            profile: "Sombre",
+            launches: &second,
+        },
+    ])
+    .unwrap();
+    assert_eq!(&args[..4], ["-w", "new", "--maximized", "new-tab"]);
+    assert_eq!(args.iter().filter(|a| *a == "new-tab").count(), 2);
+    assert_eq!(args.iter().filter(|a| *a == "split-pane").count(), 2);
+    assert_eq!(args[args.len() - 4..], [";", "focus-tab", "--target", "0"]);
+    let second_tab = args.iter().rposition(|a| a == "new-tab").unwrap();
+    assert_eq!(args[second_tab - 1], ";");
+    let tail = &args[second_tab..];
+    assert!(tail.windows(2).any(|a| a == ["--distribution", "Debian"]));
+    assert!(tail.windows(2).any(|a| a == ["--profile", "Sombre"]));
+    assert!(tail.iter().any(|a| a.contains("/tmp/runterm-two/a.sh")));
+    assert!(tail.iter().all(|a| !a.contains("runterm-one")));
+    // A single tab keeps the historical output, without focus-tab.
+    assert_eq!(
+        tabs_args(&[TabLaunch {
+            layout: &split,
+            distribution: "Ubuntu",
+            profile: "Ubuntu",
+            launches: &first,
+        }])
+        .unwrap(),
+        terminal_args(&split, "Ubuntu", "Ubuntu", &first).unwrap()
+    );
+    assert!(terminal_args(&split, "Ubuntu", "Ubuntu", &first)
+        .unwrap()
+        .iter()
+        .all(|a| a != "focus-tab"));
+    assert!(tabs_args(&[]).is_err());
+    let (one, single) = (bash(&["a"], "x"), pane("a"));
+    let many = vec![
+        TabLaunch {
+            layout: &single,
+            distribution: "",
+            profile: "",
+            launches: &one,
+        };
+        MAX_LAUNCH_PANES + 1
+    ];
+    assert!(tabs_args(&many[..MAX_LAUNCH_PANES]).is_ok());
+    assert!(tabs_args(&many).is_err());
+}
+#[test]
+fn launch_all_is_optional_in_json() {
+    let mut c = config();
+    let json = serde_json::to_value(&c).unwrap();
+    assert!(json["projects"][0].get("launchAll").is_none());
+    c.projects[0].launch_all = true;
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["projects"][0]["launchAll"], true);
+    assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
 }

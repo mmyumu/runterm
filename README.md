@@ -18,15 +18,18 @@ Run these files from Windows. The binary is built and tested; it is not signed. 
 
 1. In **Modèles de layout** (layout templates), pick the bundled developer template or create your own.
 2. Select a pane, split it left/right or top/bottom and drag the dividers. Arrow keys also adjust a selected divider.
-3. Set the pane name, its relative directory (`.`, `backend`, `frontend`…) and its Bash actions, in the desired order.
+3. Set the pane name, its shell (**Bash (WSL)** or **PowerShell (Windows)**), its relative directory (`.`, `backend`, `frontend`…) and its actions, in the desired order.
 4. Optionally, set the **Racine des workspaces WSL** (WSL workspaces root) in **Paramètres** (settings, gear icon at the bottom of the sidebar): new projects start with this root, and the root field suggests its subfolders (listed in the project's distribution) while still accepting any path. Picking a subfolder for a new project also names it after that folder.
 5. In **Projets** (projects), create a project and set its absolute Linux root, its WSL distribution and its template. The **Windows Terminal profile** (name or GUID, optional) gives the panes their colors and font; when empty, RunTerm uses the profile named after the distribution.
 6. Customize commands or directories for this project if needed. **Revenir aux valeurs du modèle** (reset to template values) restores the pane's inheritance.
 7. **Lancer le projet** (launch project) saves the configuration, checks the directories, then opens a new Windows Terminal window.
+8. To start several projects at once, toggle the ▶ icon in front of each project in the sidebar (the choice is saved in the configuration), then use **Tout lancer** (launch all): **Onglets** opens one window with a tab per project, **Fenêtres** one window per project. Every project is prepared before anything opens: if one fails, none starts. One launch opens at most 64 panes.
 
 The bundled template matches the example: Codex and Claude on top, a free shell, a Uvicorn backend and a frontend shell at the bottom. The tools must be installed in the WSL distribution; RunTerm does not install them.
 
 Each pane has its own shell. Its actions share directory and environment changes. An interactive command or a server blocks the following actions until it exits. A failure or Ctrl+C stops the sequence and leaves the prompt available. `exit` deliberately closes the shell. Panes start independently: there is no waiting mechanism between services.
+
+A PowerShell pane runs on Windows, with PowerShell 7 (`pwsh.exe`) when installed, otherwise Windows PowerShell, and the Windows Terminal profile named `PowerShell` or `Windows PowerShell`. It starts in the project folder through its `\\wsl.localhost\<distribution>\...` path; programs started through `cmd.exe` (batch files) do not support such a path as working directory. Its actions run in the session's scope, so variables and functions they define stay available; an exception, a failed command or a non-zero `$LASTEXITCODE` stops the sequence. The script is passed with `-EncodedCommand`, without temporary files.
 
 Editing a template affects its projects on the next launch; customized fields keep priority. Changing a project's template resets its customizations. A template in use cannot be deleted. Limits: 16 panes, with ratios from 10 to 90%; Windows Terminal's minimum size may limit very dense layouts.
 
@@ -116,14 +119,14 @@ On Windows, also run `cargo check -p runterm`. From WSL, use `scripts/build-wind
 ## Data and architecture
 
 - `src/`: editor, projects, templates and Tauri command client. The browser preview uses separate storage.
-- `crates/core/`: versioned JSON schema, validation, resolution of customizations, atomic save, Bash scripts and compilation of the layout into Windows Terminal arguments.
+- `crates/core/`: versioned JSON schema, validation, resolution of customizations, atomic save, Bash and PowerShell scripts and compilation of the layout into Windows Terminal arguments.
 - `src-tauri/`: Windows integration, WSL discovery and program execution with separate arguments. No user command goes through `cmd.exe`.
 
 The app saves to `%APPDATA%\dev.runterm.desktop\config.json`. A corrupted configuration or one with an unknown version is never overwritten: the file is kept. Closing a window with unsaved changes asks whether to save or discard them.
 
 Temporary scripts are created with private permissions in `/tmp/runterm-*` of the selected distribution. Each pane deletes its script on start; the last one removes the folder. A preparation error triggers cleanup. If Windows Terminal fails after the handoff, scripts may remain in `/tmp` until the distribution cleans it up.
 
-Entered commands are Bash code executed with the WSL user's rights. The JSON file stores commands in plain text: secrets should stay in the environment or the project's usual tools.
+Entered commands are Bash code executed with the WSL user's rights, or PowerShell code executed with the Windows user's rights. The JSON file stores commands in plain text: secrets should stay in the environment or the project's usual tools.
 
 This first version opens one tab per launch. It does not control panes that are already open, does not track server state and does not import batch shortcuts. Closing RunTerm leaves Windows Terminal running.
 

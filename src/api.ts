@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { type Config, initialConfig, validateConfig } from "./model";
 export const desktop = isTauri();
 const key = "runterm-preview-v1";
+export type LaunchMode = "tabs" | "windows";
 export type AvailableUpdate = {
   version: string;
   currentVersion: string;
@@ -33,12 +34,17 @@ export const api = {
     desktop
       ? invoke<string[]>("list_directories", { distribution, path })
       : Promise.resolve<string[]>([]),
-  async launch(config: Config, projectId: string): Promise<void> {
+  /** "tabs": one window with a tab per project; "windows": one window each. */
+  async launch(
+    config: Config,
+    projectIds: string[],
+    mode: LaunchMode = "windows",
+  ): Promise<void> {
     if (!desktop)
       throw new Error(
         "Le lancement est disponible dans l’application Windows. Cette page est un aperçu de l’éditeur.",
       );
-    await invoke("launch_project", { config, projectId });
+    await invoke("launch_projects", { config, projectIds, mode });
   },
   version: () =>
     desktop

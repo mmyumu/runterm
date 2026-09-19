@@ -72,6 +72,35 @@ it("modifie un modèle visuellement et protège un modèle utilisé", async () =
   );
   expect(screen.getByRole("alert").textContent).toContain("utilisé");
 });
+it("passe un panneau en PowerShell dans le modèle", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Créer mon premier projet" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Modifier le modèle" }));
+  await user.click(
+    screen.getByRole("button", { name: "Sélectionner le panneau Frontend" }),
+  );
+  await user.selectOptions(screen.getByLabelText("Shell"), "powershell");
+  expect(screen.getByText("BASH / WSL + POWERSHELL")).toBeTruthy();
+  expect(screen.getByText("PS")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Ajouter une action" }));
+  expect(
+    screen.getByPlaceholderText("Votre commande PowerShell…"),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain("enregistrées"),
+  );
+  const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
+  const shells = JSON.stringify(saved.templates[0].layout).match(
+    /"shell":"\w+"/g,
+  );
+  expect(shells).toEqual(['"shell":"powershell"']);
+  await user.selectOptions(screen.getByLabelText("Shell"), "bash");
+  expect(screen.getByText("BASH / WSL")).toBeTruthy();
+});
 it("ne remplace pas une configuration illisible", async () => {
   localStorage.setItem("runterm-preview-v1", "broken");
   render(<App />);
@@ -203,4 +232,67 @@ it("préremplit la racine depuis le workspace et propose ses sous-dossiers", asy
     name: "beta",
     root: "/opt/manual",
   });
+});
+it("choisit les projets lancés par « Tout lancer » et s’en souvient", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Créer mon premier projet" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Créer un projet" }));
+  const name = screen.getByLabelText("Nom du projet");
+  await user.clear(name);
+  await user.type(name, "Second");
+  const group = screen.getByRole("group", { name: "Tout lancer" });
+  expect(group.textContent).toContain("Aucun projet activé");
+  const toggle = screen.getByRole("button", {
+    name: "Inclure Second dans « Tout lancer »",
+  });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  await user.click(toggle);
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(group.textContent).toContain("1 projet");
+  // Toggling does not open the project in the editor.
+  expect(screen.getByLabelText<HTMLInputElement>("Nom du projet").value).toBe(
+    "Second",
+  );
+  await user.click(
+    screen.getByRole("button", {
+      name: "Inclure Nouveau projet dans « Tout lancer »",
+    }),
+  );
+  expect(group.textContent).toContain("2 projets");
+  // Launching needs the Windows app.
+  for (const label of ["Tout lancer en onglets", "Tout lancer en fenêtres"])
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: label }).disabled,
+    ).toBe(true);
+  await user.click(
+    screen.getByRole("button", {
+      name: "Inclure Nouveau projet dans « Tout lancer »",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain("enregistrées"),
+  );
+  const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
+  expect(
+    saved.projects.map((p: { name: string; launchAll?: boolean }) => [
+      p.name,
+      p.launchAll,
+    ]),
+  ).toEqual([
+    ["Nouveau projet", undefined],
+    ["Second", true],
+  ]);
+  cleanup();
+  render(<App />);
+  expect(
+    (
+      await screen.findByRole("button", {
+        name: "Inclure Second dans « Tout lancer »",
+      })
+    ).getAttribute("aria-pressed"),
+  ).toBe("true");
 });
