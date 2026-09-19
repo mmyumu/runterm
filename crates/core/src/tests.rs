@@ -488,7 +488,9 @@ fn ctrl_c_interrupts_sequence_and_keeps_interactive_prompt() {
         name: "a".into(),
         directory: dir.path().to_str().unwrap().into(),
         commands: vec![
-            "printf '__READY__\\n'; sleep 30".into(),
+            // Printed by the child so the marker means it already owns the terminal:
+            // an earlier Ctrl+C would reach Bash, whose trap waits for `sleep` to end.
+            "sh -c 'echo __READY__; exec sleep 30'".into(),
             "touch should-not-exist".into(),
         ],
         shell: Shell::Bash,
