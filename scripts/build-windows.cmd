@@ -1,17 +1,17 @@
 @echo off
-rem Construit RunTerm.exe et l'installateur NSIS avec les outils Windows.
-rem Utilise node\ et toolchain\ portables s'ils existent a la racine du dossier.
+rem Builds RunTerm.exe and the NSIS installer with the Windows tools.
+rem Uses portable node\ and toolchain\ if they exist at the root of the folder.
 setlocal
 cd /d "%~dp0.."
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
-  echo Visual Studio Build Tools introuvables.
+  echo Visual Studio Build Tools not found.
   exit /b 1
 )
 for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSDIR=%%i"
 if not defined VSDIR (
-  echo Outils C++ de Visual Studio introuvables.
+  echo Visual Studio C++ tools not found.
   exit /b 1
 )
 call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul

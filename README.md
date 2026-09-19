@@ -1,77 +1,77 @@
 # RunTerm
 
-Une petite application Windows pour composer, sauvegarder et lancer des espaces de travail dans **Windows Terminal + WSL**.
+A small Windows app to compose, save and launch workspaces in **Windows Terminal + WSL**.
 
-Interface française en React/TypeScript, application Tauri 2 et moteur Rust. Aucun serveur ni compte nécessaire.
+React/TypeScript UI, Tauri 2 app and Rust engine. No server or account required. The user interface is in French.
 
-## Version Windows prête à lancer
+## Ready-to-run Windows build
 
-Les fichiers compilés de cette session sont disponibles dans `artifacts/` :
+Compiled files from the latest local build are in `artifacts/` (not tracked by git):
 
-- `RunTerm_0.1.0_x64-setup.exe` : installateur Windows x64.
-- `RunTerm.exe` : exécutable autonome, utilisable avec WebView2 déjà installé.
-- `SHA256SUMS.txt` : empreintes des deux fichiers.
+- `RunTerm_0.1.0_x64-setup.exe`: Windows x64 installer.
+- `RunTerm.exe`: standalone executable, usable when WebView2 is already installed.
+- `SHA256SUMS.txt`: checksums of both files.
 
-Lancez ces fichiers depuis Windows. Le binaire est compilé et testé ; il n’est pas signé. Le bilan des vérifications est dans [docs/validation.md](docs/validation.md).
+Run these files from Windows. The binary is built and tested; it is not signed. The verification report is in [docs/validation.md](docs/validation.md).
 
-## Utilisation
+## Usage
 
-1. Dans **Modèles de layout**, choisissez le modèle développeur fourni ou créez le vôtre.
-2. Sélectionnez un panneau, divisez-le gauche/droite ou haut/bas et déplacez les séparateurs. Les flèches du clavier ajustent aussi un séparateur sélectionné.
-3. Configurez le nom du panneau, son dossier relatif (`.`, `backend`, `frontend`…) et ses actions Bash, dans l’ordre voulu.
-4. Dans **Projets**, créez un projet, indiquez sa racine Linux absolue, sa distribution WSL et son modèle. Le **profil Windows Terminal** (nom ou GUID, optionnel) donne aux panneaux ses couleurs et sa police ; vide, RunTerm utilise le profil portant le nom de la distribution.
-5. Personnalisez les commandes ou dossiers pour ce projet si nécessaire. **Revenir aux valeurs du modèle** rétablit l’héritage du panneau.
-6. **Lancer le projet** enregistre la configuration, vérifie les dossiers puis ouvre une nouvelle fenêtre Windows Terminal.
+1. In **Modèles de layout** (layout templates), pick the bundled developer template or create your own.
+2. Select a pane, split it left/right or top/bottom and drag the dividers. Arrow keys also adjust a selected divider.
+3. Set the pane name, its relative directory (`.`, `backend`, `frontend`…) and its Bash actions, in the desired order.
+4. In **Projets** (projects), create a project and set its absolute Linux root, its WSL distribution and its template. The **Windows Terminal profile** (name or GUID, optional) gives the panes their colors and font; when empty, RunTerm uses the profile named after the distribution.
+5. Customize commands or directories for this project if needed. **Revenir aux valeurs du modèle** (reset to template values) restores the pane's inheritance.
+6. **Lancer le projet** (launch project) saves the configuration, checks the directories, then opens a new Windows Terminal window.
 
-Le modèle fourni correspond à l’exemple : Codex et Claude en haut, shell libre, backend Uvicorn et shell frontend en bas. Les outils doivent être installés dans la distribution WSL ; RunTerm ne les installe pas.
+The bundled template matches the example: Codex and Claude on top, a free shell, a Uvicorn backend and a frontend shell at the bottom. The tools must be installed in the WSL distribution; RunTerm does not install them.
 
-Chaque panneau a son propre shell. Ses actions partagent les changements de dossier et d’environnement. Une commande interactive ou un serveur bloque la suite jusqu’à sa fin. Un échec ou Ctrl+C arrête la séquence et laisse le prompt disponible. `exit` ferme volontairement le shell. Les panneaux démarrent indépendamment : aucun mécanisme d’attente entre services.
+Each pane has its own shell. Its actions share directory and environment changes. An interactive command or a server blocks the following actions until it exits. A failure or Ctrl+C stops the sequence and leaves the prompt available. `exit` deliberately closes the shell. Panes start independently: there is no waiting mechanism between services.
 
-Modifier un modèle affecte ses projets au prochain lancement ; les champs personnalisés restent prioritaires. Changer de modèle dans un projet remet ses personnalisations à zéro. Un modèle utilisé ne peut pas être supprimé. Maximum : 16 panneaux, avec des proportions de 10 à 90 % ; la taille minimale de Windows Terminal peut limiter les dispositions très denses.
+Editing a template affects its projects on the next launch; customized fields keep priority. Changing a project's template resets its customizations. A template in use cannot be deleted. Limits: 16 panes, with ratios from 10 to 90%; Windows Terminal's minimum size may limit very dense layouts.
 
-## Développement Windows
+## Windows development
 
-Pré-requis :
+Prerequisites:
 
-- Windows 10/11 avec Windows Terminal (`wt.exe` accessible dans le PATH), WSL et une distribution disposant de Bash.
-- Node.js 22.12 ou supérieur et npm.
-- Rust via rustup ; `rust-toolchain.toml` sélectionne Rust 1.94.0.
-- Visual Studio Build Tools avec **Développement Desktop en C++** et Windows SDK.
+- Windows 10/11 with Windows Terminal (`wt.exe` on the PATH), WSL and a distribution with Bash.
+- Node.js 22.12 or later and npm.
+- Rust via rustup; `rust-toolchain.toml` selects Rust 1.94.0.
+- Visual Studio Build Tools with **Desktop development with C++** and the Windows SDK.
 - Microsoft Edge WebView2 Runtime.
 
-Voir les [prérequis officiels Tauri](https://v2.tauri.app/start/prerequisites/).
+See the [official Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Dans **PowerShell Windows**, dans un checkout situé sur un disque Windows (par exemple `C:\dev\runterm`) :
+In **Windows PowerShell**, from a checkout on a Windows drive (for example `C:\dev\runterm`):
 
 ```powershell
 npm ci
 npm run tauri -- dev
 ```
 
-Ne partagez pas `node_modules` ou `target` entre les installations Linux et Windows. Le projet courant peut être développé sous WSL, mais la compilation native et l’installateur se construisent avec les outils Windows.
+Do not share `node_modules` or `target` between Linux and Windows installs. The project can be developed under WSL, but the native build and the installer are produced with the Windows tools.
 
-## Générer l’installateur
+## Building the installer
 
 ```powershell
 npm run tauri -- build
 ```
 
-Depuis WSL, `scripts/build-windows.sh` fait la même chose avec les outils Windows : il copie les sources dans `%USERPROFILE%\runterm-build` (modifiable via `RUNTERM_WIN_BUILD_DIR`), y lance `scripts\build-windows.cmd`, puis place `RunTerm.exe`, l’installateur et `SHA256SUMS.txt` dans `artifacts/`. Visual Studio Build Tools restent requis côté Windows ; Node et Rust peuvent être installés sous Windows ou fournis en version portable dans les dossiers `node\` et `toolchain\` du dossier de build.
+From WSL, `scripts/build-windows.sh` does the same with the Windows tools: it copies the sources to `%USERPROFILE%\runterm-build` (override with `RUNTERM_WIN_BUILD_DIR`), runs `scripts\build-windows.cmd` there, then puts `RunTerm.exe`, the installer and `SHA256SUMS.txt` into `artifacts/`. Visual Studio Build Tools are still required on the Windows side; Node and Rust can be installed on Windows or provided as portable versions in the `node\` and `toolchain\` folders of the build directory.
 
-L’installateur NSIS se trouve dans `target\release\bundle\nsis\`. Il n’est pas signé ; une signature de distribution n’est pas configurée. La configuration Tauri prévoit l’installation de WebView2 si nécessaire. Windows Terminal et WSL restent des prérequis à installer séparément.
+The NSIS installer is written to `target\release\bundle\nsis\`. It is not signed; no distribution signing is configured. The Tauri configuration installs WebView2 if needed. Windows Terminal and WSL remain prerequisites to install separately.
 
-Le workflow GitHub Actions **Checks and Windows installer** construit et conserve l’installateur comme artefact, sans publier de release. Il se lance sur push, pull request ou manuellement une fois le dépôt hébergé sur GitHub.
+The **Checks and Windows installer** GitHub Actions workflow builds the installer and keeps it as a workflow artifact, without publishing a release. It runs on push, pull request or manually.
 
-## Aperçu de l’interface sous WSL/Linux
+## UI preview under WSL/Linux
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Ouvrir `http://localhost:1420`. L’aperçu sauvegarde dans le stockage local du navigateur et désactive le lancement. Ses données ne sont pas transférées à l’application Windows.
+Open `http://localhost:1420`. The preview saves to the browser's local storage and disables launching. Its data is not shared with the Windows app.
 
-## Vérifications
+## Checks
 
 ```bash
 npm run check
@@ -81,22 +81,22 @@ cargo clippy -p runterm-core --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-Sur Windows, vérifier aussi `cargo check -p runterm`. Depuis WSL, une vérification de types ciblant Windows est possible avec `rustup target add x86_64-pc-windows-msvc` puis `cargo check -p runterm --target x86_64-pc-windows-msvc` ; elle ne remplace pas l’édition de liens, la création de l’installateur ou le test réel de Windows Terminal. La recette manuelle figure dans [docs/windows-validation.md](docs/windows-validation.md).
+On Windows, also run `cargo check -p runterm`. From WSL, a Windows-targeted type check is possible with `rustup target add x86_64-pc-windows-msvc` then `cargo check -p runterm --target x86_64-pc-windows-msvc`; it does not replace linking, building the installer or actually testing Windows Terminal. The manual test plan is in [docs/windows-validation.md](docs/windows-validation.md).
 
-## Données et architecture
+## Data and architecture
 
-- `src/` : éditeur, projets, modèles et client des commandes Tauri. L’aperçu navigateur utilise un stockage séparé.
-- `crates/core/` : schéma JSON versionné, validation, résolution des personnalisations, sauvegarde atomique, scripts Bash et compilation du layout en arguments Windows Terminal.
-- `src-tauri/` : intégration Windows, découverte WSL et exécution des programmes avec arguments séparés. Aucune commande utilisateur ne transite par `cmd.exe`.
+- `src/`: editor, projects, templates and Tauri command client. The browser preview uses separate storage.
+- `crates/core/`: versioned JSON schema, validation, resolution of customizations, atomic save, Bash scripts and compilation of the layout into Windows Terminal arguments.
+- `src-tauri/`: Windows integration, WSL discovery and program execution with separate arguments. No user command goes through `cmd.exe`.
 
-L’application sauvegarde dans `%APPDATA%\dev.runterm.desktop\config.json`. Une configuration corrompue ou d’une version inconnue bloque sa réécriture : le fichier est conservé. Fermer une fenêtre avec des modifications non enregistrées demande de les enregistrer ou de les annuler.
+The app saves to `%APPDATA%\dev.runterm.desktop\config.json`. A corrupted configuration or one with an unknown version is never overwritten: the file is kept. Closing a window with unsaved changes asks whether to save or discard them.
 
-Les scripts temporaires sont créés avec permissions privées dans `/tmp/runterm-*` de la distribution choisie. Chaque panneau supprime son script au démarrage ; le dernier retire le dossier. Une erreur de préparation déclenche le nettoyage. Si Windows Terminal échoue après transmission, des scripts peuvent rester dans `/tmp` jusqu’au nettoyage de la distribution.
+Temporary scripts are created with private permissions in `/tmp/runterm-*` of the selected distribution. Each pane deletes its script on start; the last one removes the folder. A preparation error triggers cleanup. If Windows Terminal fails after the handoff, scripts may remain in `/tmp` until the distribution cleans it up.
 
-Les commandes saisies sont du code Bash exécuté avec les droits de l’utilisateur WSL. Le fichier JSON contient les commandes en clair : les secrets doivent rester dans l’environnement ou les outils habituels du projet.
+Entered commands are Bash code executed with the WSL user's rights. The JSON file stores commands in plain text: secrets should stay in the environment or the project's usual tools.
 
-La première version ouvre un onglet par lancement. Elle ne pilote pas les panneaux déjà ouverts, ne suit pas l’état des serveurs et n’importe pas les raccourcis batch. Fermer RunTerm laisse Windows Terminal fonctionner.
+This first version opens one tab per launch. It does not control panes that are already open, does not track server state and does not import batch shortcuts. Closing RunTerm leaves Windows Terminal running.
 
-## Licence
+## License
 
-MIT, voir [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

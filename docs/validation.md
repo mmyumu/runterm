@@ -1,28 +1,28 @@
-# Vérifications effectuées — 19 septembre 2026
+# Verification report — September 19, 2026
 
-## Résultats
+## Results
 
-- Compilation frontend TypeScript/Vite réussie.
-- 6 tests frontend réussis : édition, sauvegarde et rechargement d’un projet personnalisé ; division/suppression de panneau ; protection d’un modèle utilisé ; conservation d’un stockage corrompu ; héritage et identifiants.
-- 7 tests Rust sous Linux réussis : sauvegarde atomique et refus de corruption ; résolution des projets ; génération des arguments de layouts imbriqués ; validation ; séquences Bash ; Ctrl+C avec un vrai pseudo-terminal ; conservation des hooks de prompt et exécution unique des actions.
-- Vérification Clippy sans avertissement pour le moteur et le code Windows, y compris les tests.
-- Formatage Rust et frontend vérifiés.
-- 4 tests du moteur exécutés aussi avec Rust Windows : tous réussis.
-- 2 tests d’intégration Windows réussis : décodage UTF-16/UTF-8 et lancement réel Windows Terminal/WSL.
-- Test réel : cinq panneaux exécutent leurs actions dans le bon dossier et partagent une variable entre actions. Les shells de test se ferment ensuite automatiquement. Aucun assistant ni serveur du projet utilisateur n’est lancé.
-- Interface vérifiée dans Chromium : création, sauvegarde, sélection des panneaux et ajustement d’un séparateur au clavier ; pas de débordement horizontal à 1280 px.
-- Exécutable Windows lancé : la WebView charge `http://tauri.localhost/`, affiche l’interface française et dispose de l’API Tauri. L’interface embarquée ne dépend pas de Vite.
-- Installateur NSIS Windows x64 généré avec succès. Les livrables et leurs empreintes sont dans `artifacts/`.
-- L’audit npm effectué après mise à jour de Vitest ne rapporte aucune vulnérabilité.
+- TypeScript/Vite frontend build succeeds.
+- 6 frontend tests pass: editing, saving and reloading a customized project; splitting/removing a pane; protection of a template in use; preservation of corrupted storage; inheritance and identifiers.
+- 7 Rust tests pass on Linux: atomic save and refusal to overwrite corruption; project resolution; argument generation for nested layouts; validation; Bash sequences; Ctrl+C with a real pseudo-terminal; preservation of prompt hooks and single execution of actions.
+- Clippy reports no warnings for the engine and the Windows code, tests included.
+- Rust and frontend formatting checked.
+- 4 engine tests also run with Windows Rust: all pass.
+- 2 Windows integration tests pass: UTF-16/UTF-8 decoding and a real Windows Terminal/WSL launch.
+- Real test: five panes run their actions in the right directory and share a variable between actions. The test shells then close automatically. No assistant or user project server is launched.
+- UI checked in Chromium: creating, saving, selecting panes and adjusting a divider with the keyboard; no horizontal overflow at 1280 px.
+- Windows executable launched: the WebView loads `http://tauri.localhost/`, shows the French UI and has access to the Tauri API. The embedded UI does not depend on Vite.
+- Windows x64 NSIS installer built successfully. Deliverables and their checksums are in `artifacts/`.
+- The npm audit run after upgrading Vitest reports no vulnerabilities.
 
-## Limites de la validation
+## Validation limits
 
-L’installation/désinstallation NSIS n’a pas été exécutée. L’application a été vérifiée directement depuis l’exécutable compilé. La géométrie réelle des cinq panneaux n’a pas fait l’objet d’une comparaison visuelle automatisée ; les arguments générés sont testés, et le démarrage des cinq shells est vérifié sur Windows Terminal.
+NSIS install/uninstall was not run. The app was checked directly from the compiled executable. The actual geometry of the five panes was not compared visually by automation; the generated arguments are tested, and the startup of the five shells is verified in Windows Terminal.
 
-Les dépendances Windows de compilation ont été utilisées depuis un dossier temporaire, avec le compilateur C++ déjà installé. La compilation native a utilisé le même code applicatif que le workspace. Un test Linux supplémentaire du prompt a été ajouté ensuite, sans modification du code applicatif.
+Windows build dependencies were used from a temporary folder, with the C++ compiler already installed. The native build used the same application code as the workspace. An extra Linux prompt test was added afterwards, without changing the application code.
 
-La recette manuelle complémentaire est dans [windows-validation.md](windows-validation.md).
+The complementary manual test plan is in [windows-validation.md](windows-validation.md).
 
-## Mise à jour : menu contextuel
+## Update: context menu
 
-Le menu contextuel de la WebView est désactivé globalement. Vérification dans Chromium : les événements `contextmenu` sur le fond de l’interface et sur un bouton sont annulés. Compilation frontend, 6 tests frontend et vérification du formatage réussies.
+The WebView context menu is disabled globally. Checked in Chromium: `contextmenu` events on the UI background and on a button are cancelled. Frontend build, 6 frontend tests and formatting check pass.

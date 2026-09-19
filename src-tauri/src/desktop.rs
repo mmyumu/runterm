@@ -264,7 +264,7 @@ mod tests {
 
     /// Opens a temporary Terminal window; intentionally excluded from unattended CI.
     #[test]
-    #[ignore = "Nécessite Windows Terminal, WSL et une session Windows interactive"]
+    #[ignore = "Requires Windows Terminal, WSL and an interactive Windows session"]
     fn windows_terminal_smoke() {
         let folder = wsl("", &["mktemp", "-d", "/tmp/runterm-smoke-XXXXXXXX"], None)
             .unwrap()

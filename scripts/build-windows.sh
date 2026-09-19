@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Construit la version Windows depuis WSL : copie les sources dans un dossier
-# Windows, y lance scripts/build-windows.cmd, puis copie les livrables dans artifacts/.
+# Builds the Windows release from WSL: copies the sources to a Windows folder,
+# runs scripts/build-windows.cmd there, then copies the deliverables to artifacts/.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,12 +15,12 @@ fi
 case "$build_dir" in
   /mnt/*) ;;
   *)
-    echo "Le dossier de build doit être sur un disque Windows (/mnt/...) : $build_dir" >&2
+    echo "The build directory must be on a Windows drive (/mnt/...): $build_dir" >&2
     exit 1
     ;;
 esac
 
-echo "Synchronisation des sources vers $build_dir"
+echo "Syncing sources to $build_dir"
 mkdir -p "$build_dir"
 rsync -a --delete \
   --exclude /.git \
@@ -35,7 +35,7 @@ rsync -a --delete \
   --exclude '*.tsbuildinfo' \
   "$repo/" "$build_dir/"
 
-echo "Compilation Windows"
+echo "Building on Windows"
 (cd "$build_dir" && cmd.exe /c 'scripts\build-windows.cmd')
 
 exe="$build_dir/target/release/runterm.exe"
@@ -47,5 +47,5 @@ cp "$exe" "$repo/artifacts/RunTerm.exe"
 cp "$setup" "$repo/artifacts/"
 (cd "$repo" && sha256sum artifacts/RunTerm.exe "artifacts/$(basename "$setup")" > artifacts/SHA256SUMS.txt)
 
-echo "Livrables :"
+echo "Deliverables:"
 cat "$repo/artifacts/SHA256SUMS.txt"

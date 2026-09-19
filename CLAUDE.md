@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-RunTerm is a Windows desktop app (Tauri 2 + React/TypeScript + Rust) that lets users compose split-pane layouts, bind them to WSL projects, and launch them as a new Windows Terminal window. The UI, README, error messages and user-facing strings are in **French** — keep new user-facing text in French.
+RunTerm is a Windows desktop app (Tauri 2 + React/TypeScript + Rust) that lets users compose split-pane layouts, bind them to WSL projects, and launch them as a new Windows Terminal window. The UI, error messages and user-facing strings are in **French** — keep new user-facing text in French. Everything developer-facing is in **English**: README, `docs/`, code comments, script output and commit messages.
 
 ## Commands
 
