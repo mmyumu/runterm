@@ -96,3 +96,7 @@ Les scripts temporaires sont créés avec permissions privées dans `/tmp/runter
 Les commandes saisies sont du code Bash exécuté avec les droits de l’utilisateur WSL. Le fichier JSON contient les commandes en clair : les secrets doivent rester dans l’environnement ou les outils habituels du projet.
 
 La première version ouvre un onglet par lancement. Elle ne pilote pas les panneaux déjà ouverts, ne suit pas l’état des serveurs et n’importe pas les raccourcis batch. Fermer RunTerm laisse Windows Terminal fonctionner.
+
+## Licence
+
+MIT, voir [LICENSE](LICENSE).
