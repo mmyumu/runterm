@@ -60,7 +60,20 @@ From WSL, `scripts/build-windows.sh` does the same with the Windows tools: it co
 
 The NSIS installer is written to `target\release\bundle\nsis\`. It is not signed; no distribution signing is configured. The Tauri configuration installs WebView2 if needed. Windows Terminal and WSL remain prerequisites to install separately.
 
-The **Checks and Windows installer** GitHub Actions workflow builds the installer and keeps it as a workflow artifact, without publishing a release. It runs on push, pull request or manually.
+The **Checks and Windows installer** GitHub Actions workflow builds the installer and keeps it as a workflow artifact, without publishing a release. It runs on branch pushes, pull request or manually.
+
+## Releasing
+
+Releases are published by the **Release** workflow when a `v*` tag is pushed:
+
+```bash
+scripts/release.sh 0.2.0        # bumps the version in every manifest, commits "Release v0.2.0" and tags v0.2.0
+git push origin main v0.2.0
+```
+
+The workflow checks that the tag matches the version in `package.json`, `src-tauri/tauri.conf.json` and both `Cargo.toml` files, runs the tests, builds on Windows and creates the GitHub release with the installer, `RunTerm.exe` and `SHA256SUMS.txt`, plus release notes generated from the commits. A tag with a suffix (`v0.2.0-beta.1`) is published as a prerelease.
+
+Once the updater is enabled, the installer is signed with the `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) repository secrets, and the release also gets the `.sig` file and `latest.json`.
 
 ## UI preview under WSL/Linux
 
