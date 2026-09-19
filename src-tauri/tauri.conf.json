@@ -4,5 +4,5 @@
   "build": {"beforeDevCommand":"npm run dev", "devUrl":"http://localhost:1420", "beforeBuildCommand":"npm run build", "frontendDist":"../dist"},
   "app": {"windows":[{"label":"main","title":"RunTerm","width":1280,"height":850,"minWidth":960,"minHeight":650,"dragDropEnabled":false}],"security":{"csp":"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"}},
   "bundle": {"active":true,"createUpdaterArtifacts":true,"targets":["nsis"],"icon":["icons/icon.ico"],"windows":{"nsis":{"languages":["French"],"displayLanguageSelector":false}}},
-  "plugins": {"updater":{"pubkey":"UPDATER_PUBLIC_KEY","endpoints":["https://github.com/mmyumu/runterm/releases/latest/download/latest.json"],"windows":{"installMode":"passive"}}}
+  "plugins": {"updater":{"pubkey":"dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlENTQxRUVGMDQ0QzgyRUYKUldUdmdrd0U3eDVVblkyb05pK0V3VElwaHdjWGQ0SEN2Ris5SE5GTkRKWHBwZ0RJbzlTbXRTc3IK","endpoints":["https://github.com/mmyumu/runterm/releases/latest/download/latest.json"],"windows":{"installMode":"passive"}}}
 }
