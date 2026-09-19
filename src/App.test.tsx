@@ -191,6 +191,13 @@ it("ignore une mise à jour proposée", async () => {
   );
   expect(screen.queryByText("RunTerm 0.2.0 est disponible")).toBeNull();
 });
+it("affiche la version de l’application dans les paramètres", async () => {
+  vi.spyOn(api, "version").mockResolvedValue("1.0.0");
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "Paramètres" }));
+  expect(await screen.findByText("RunTerm v1.0.0")).toBeTruthy();
+});
 it("préremplit la racine depuis le workspace et propose ses sous-dossiers", async () => {
   const directories = vi
     .spyOn(api, "directories")

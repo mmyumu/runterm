@@ -1031,6 +1031,12 @@ textarea {
 .settings-modal label {
   margin-top: 14px;
 }
+.settings-version {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #e7eddf;
+  color: #859177;
+}
 .modal h2 {
   font-size: 20px;
   line-height: 1.5;

@@ -1480,6 +1480,9 @@ export default function App() {
               Préremplit le dossier racine des nouveaux projets et propose ses
               sous-dossiers. Enregistrez pour conserver ce réglage.
             </p>
+            <p className="settings-version">
+              RunTerm {version ? `v${version}` : "— aperçu navigateur"}
+            </p>
             <div>
               <button
                 className="button secondary"

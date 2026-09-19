@@ -83,7 +83,7 @@ The installer is signed for the updater with the `TAURI_SIGNING_PRIVATE_KEY` and
 
 ## Automatic updates
 
-RunTerm uses the Tauri updater plugin. At startup, and from the refresh button at the bottom of the sidebar, it reads `https://github.com/mmyumu/runterm/releases/latest/download/latest.json`. When a newer version exists, a banner offers to install it: the app downloads the installer, checks its signature against the public key in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`), then runs it in passive mode and restarts. Installing is disabled while there are unsaved changes, because the installer closes the app. A failed check at startup (offline, for example) stays silent.
+The installed version is shown at the bottom of the **Paramètres** dialog and in the sidebar footer. RunTerm uses the Tauri updater plugin. At startup, and from the refresh button at the bottom of the sidebar, it reads `https://github.com/mmyumu/runterm/releases/latest/download/latest.json`. When a newer version exists, a banner offers to install it: the app downloads the installer, checks its signature against the public key in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`), then runs it in passive mode and restarts. Installing is disabled while there are unsaved changes, because the installer closes the app. A failed check at startup (offline, for example) stays silent.
 
 Setting up the signing key (once):
 
