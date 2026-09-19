@@ -58,6 +58,10 @@ pub struct Project {
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub schema_version: u32,
+    /// WSL folder holding the user's projects: prefills new project roots and
+    /// lists their subfolders. Empty: not set.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub workspace_root: String,
     pub templates: Vec<Template>,
     pub projects: Vec<Project>,
 }
@@ -140,6 +144,11 @@ impl Config {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("Version du fichier de configuration non prise en charge.".into());
+        }
+        if !self.workspace_root.is_empty()
+            && (!self.workspace_root.starts_with('/') || self.workspace_root.contains('\0'))
+        {
+            return Err("La racine des workspaces doit être un chemin Linux absolu.".into());
         }
         let mut ids = HashSet::new();
         for template in &self.templates {

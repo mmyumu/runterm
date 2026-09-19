@@ -14,7 +14,8 @@ Run in the Windows Tauri app, with a test WSL distribution. The automated Linux 
 10. Select a missing distribution (by editing a copy of the JSON) or a nonexistent directory. The app must show an error without opening a partial layout.
 11. Save, close and reopen RunTerm: projects, templates and customizations are identical. Closing RunTerm after a launch leaves the terminals running.
 12. On a backup copy, make the JSON invalid then relaunch: the GUI must refuse to open it without replacing the file.
-13. Build the installer with `npm run tauri -- build`, install it and check startup and a WSL launch from the app shortcut.
+13. In **Paramètres**, set the workspaces root to the folder holding the two test projects. Create a project: its root is prefilled, the root field suggests both subfolders (hidden folders excluded), and picking one names the project after it. A manually typed path is still accepted. A nonexistent workspaces root yields no suggestions and no error.
+14. Build the installer with `npm run tauri -- build`, install it and check startup and a WSL launch from the app shortcut.
 
 The success message means the request was handed to Windows Terminal, not that every server started correctly. Program errors remain visible in their panes.
 

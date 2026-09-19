@@ -3,6 +3,7 @@ import {
   duplicateLayout,
   effectivePane,
   initialConfig,
+  joinPath,
   moveItem,
   newPane,
   panes,
@@ -88,6 +89,18 @@ describe("layouts partagés", () => {
     expect(withProfile("Ubuntu 24.04.1 LTS")).toBeNull();
     expect(withProfile("a;b")).not.toBeNull();
     expect(withProfile("--help")).not.toBeNull();
+  });
+  it("valide la racine des workspaces optionnelle", () => {
+    const config = initialConfig();
+    expect(validateConfig({ ...config, workspaceRoot: "" })).toBeNull();
+    expect(
+      validateConfig({ ...config, workspaceRoot: "/home/me/workspaces" }),
+    ).toBeNull();
+    expect(
+      validateConfig({ ...config, workspaceRoot: "workspaces" }),
+    ).not.toBeNull();
+    expect(joinPath("/home/me/ws", "a")).toBe("/home/me/ws/a");
+    expect(joinPath("/", "a")).toBe("/a");
   });
 });
 describe("ordre des éléments", () => {

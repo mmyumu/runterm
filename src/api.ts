@@ -28,6 +28,11 @@ export const api = {
     desktop
       ? invoke<string[]>("list_distributions")
       : Promise.resolve<string[]>([]),
+  /** Visible subfolders of a WSL folder; always empty in the browser preview. */
+  directories: (distribution: string, path: string) =>
+    desktop
+      ? invoke<string[]>("list_directories", { distribution, path })
+      : Promise.resolve<string[]>([]),
   async launch(config: Config, projectId: string): Promise<void> {
     if (!desktop)
       throw new Error(

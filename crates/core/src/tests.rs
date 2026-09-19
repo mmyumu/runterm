@@ -10,6 +10,7 @@ fn pane(id: &str) -> Layout {
 fn config() -> Config {
     Config {
         schema_version: 1,
+        workspace_root: String::new(),
         templates: vec![Template {
             id: "t".into(),
             name: "Dev".into(),
@@ -266,6 +267,22 @@ fn terminal_profile_is_optional_and_validated() {
     assert!(c.validate().is_ok());
     for bad in ["a;b", "a\nb", "--help"] {
         c.projects[0].terminal_profile = bad.into();
+        assert!(c.validate().is_err(), "{bad}");
+    }
+}
+#[test]
+fn workspace_root_is_optional_and_validated() {
+    let mut c = config();
+    let json = serde_json::to_string(&c).unwrap();
+    assert!(!json.contains("workspaceRoot"));
+    assert_eq!(serde_json::from_str::<Config>(&json).unwrap(), c);
+    c.workspace_root = "/home/me/workspaces".into();
+    assert!(c.validate().is_ok());
+    assert!(serde_json::to_string(&c)
+        .unwrap()
+        .contains(r#""workspaceRoot":"/home/me/workspaces""#));
+    for bad in ["workspaces", "/home/\0"] {
+        c.workspace_root = bad.into();
         assert!(c.validate().is_err(), "{bad}");
     }
 }

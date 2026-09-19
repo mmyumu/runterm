@@ -31,6 +31,8 @@ export type Project = {
 };
 export type Config = {
   schemaVersion: number;
+  /** WSL folder holding the projects: prefills new roots and lists their subfolders. */
+  workspaceRoot?: string;
   templates: Template[];
   projects: Project[];
 };
@@ -93,6 +95,8 @@ export function moveItem<T extends { id: string }>(
   next.splice(to, 0, ...next.splice(from, 1));
   return next;
 }
+export const joinPath = (root: string, name: string) =>
+  root.endsWith("/") ? `${root}${name}` : `${root}/${name}`;
 export function effectivePane(pane: Pane, project?: Project): Pane {
   const custom = project?.overrides[pane.id];
   return {
@@ -139,6 +143,9 @@ export function validateConfig(config: Config): string | null {
     !Array.isArray(config.projects)
   )
     return "Configuration non prise en charge.";
+  const workspaceRoot = config.workspaceRoot ?? "";
+  if (workspaceRoot && !workspaceRoot.startsWith("/"))
+    return "La racine des workspaces doit être un chemin Linux absolu.";
   for (const template of config.templates) {
     if (!template.name.trim()) return "Donnez un nom au modèle.";
     if (panes(template.layout).length > 16)

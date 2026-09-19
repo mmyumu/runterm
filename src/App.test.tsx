@@ -162,3 +162,45 @@ it("ignore une mise à jour proposée", async () => {
   );
   expect(screen.queryByText("RunTerm 0.2.0 est disponible")).toBeNull();
 });
+it("préremplit la racine depuis le workspace et propose ses sous-dossiers", async () => {
+  const directories = vi
+    .spyOn(api, "directories")
+    .mockResolvedValue(["alpha", "beta"]);
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "Paramètres" }));
+  await user.type(
+    screen.getByLabelText("Racine des workspaces WSL"),
+    "/home/me/ws",
+  );
+  await user.click(screen.getByRole("button", { name: "Fermer" }));
+  await user.click(
+    screen.getByRole("button", { name: "Créer mon premier projet" }),
+  );
+  const root = screen.getByLabelText("Dossier racine WSL") as HTMLInputElement;
+  expect(root.value).toBe("/home/me/ws/");
+  await waitFor(() =>
+    expect(
+      Array.from(document.querySelectorAll("#workspace-folders option")).map(
+        (o) => (o as HTMLOptionElement).value,
+      ),
+    ).toEqual(["/home/me/ws/alpha", "/home/me/ws/beta"]),
+  );
+  expect(directories).toHaveBeenLastCalledWith("", "/home/me/ws");
+  await user.type(root, "beta");
+  expect(
+    (screen.getByLabelText("Nom du projet") as HTMLInputElement).value,
+  ).toBe("beta");
+  await user.clear(root);
+  await user.type(root, "/opt/manual");
+  await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain("enregistrées"),
+  );
+  const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
+  expect(saved.workspaceRoot).toBe("/home/me/ws");
+  expect(saved.projects[0]).toMatchObject({
+    name: "beta",
+    root: "/opt/manual",
+  });
+});

@@ -265,8 +265,11 @@ nav {
   font-size: 10px;
   line-height: 1.5;
 }
-.update-check {
+.settings-button {
   margin-left: auto;
+  color: #a0b4a9;
+}
+.update-check {
   color: #a0b4a9;
 }
 .update-banner {
@@ -947,6 +950,15 @@ textarea {
 }
 .modal > svg {
   color: #a76852;
+}
+.settings-modal {
+  width: min(460px, calc(100vw - 32px));
+}
+.settings-modal > svg {
+  color: #6db093;
+}
+.settings-modal label {
+  margin-top: 14px;
 }
 .modal h2 {
   font-size: 20px;

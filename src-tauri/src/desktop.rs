@@ -128,6 +128,41 @@ async fn list_distributions() -> Result<Vec<String>, String> {
         .await
         .map_err(|e| e.to_string())?
 }
+/// One line: `wsl.exe` receives it as a single command-line argument.
+const LIST_DIRECTORIES: &str = r#"builtin cd -- "$1" || exit 1; shopt -s nullglob; for d in */; do d=${d%/}; [[ $d == *$'\n'* ]] || printf '%s\n' "$d"; done"#;
+/// Visible subfolders of `path`, sorted; names containing a newline are skipped.
+fn directories(distribution: &str, path: &str) -> Result<Vec<String>, String> {
+    if !path.starts_with('/') || path.contains('\0') {
+        return Err("La racine des workspaces doit être un chemin Linux absolu.".into());
+    }
+    let output = wsl(
+        distribution,
+        &[
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            LIST_DIRECTORIES,
+            "runterm",
+            path,
+        ],
+        None,
+    )
+    .map_err(|_| format!("Dossier inaccessible : {path}"))?;
+    let mut names: Vec<String> = output
+        .lines()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    names.sort_by_key(|s| s.to_lowercase());
+    Ok(names)
+}
+#[tauri::command]
+async fn list_directories(distribution: String, path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || directories(&distribution, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
 fn launch(config: Config, project_id: String) -> Result<(), String> {
     let (project, template, panes) = config.resolve(&project_id)?;
     execute("where.exe", &["wt.exe".into()], None).map_err(|_| {
@@ -242,6 +277,7 @@ pub fn run() {
             load_config,
             save_config,
             list_distributions,
+            list_directories,
             launch_project
         ])
         .run(tauri::generate_context!())
@@ -313,6 +349,7 @@ mod tests {
         );
         let config = Config {
             schema_version: 1,
+            workspace_root: String::new(),
             templates: vec![Template {
                 id: "t".into(),
                 name: "Smoke".into(),

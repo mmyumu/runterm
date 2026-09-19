@@ -19,9 +19,10 @@ Run these files from Windows. The binary is built and tested; it is not signed. 
 1. In **Modèles de layout** (layout templates), pick the bundled developer template or create your own.
 2. Select a pane, split it left/right or top/bottom and drag the dividers. Arrow keys also adjust a selected divider.
 3. Set the pane name, its relative directory (`.`, `backend`, `frontend`…) and its Bash actions, in the desired order.
-4. In **Projets** (projects), create a project and set its absolute Linux root, its WSL distribution and its template. The **Windows Terminal profile** (name or GUID, optional) gives the panes their colors and font; when empty, RunTerm uses the profile named after the distribution.
-5. Customize commands or directories for this project if needed. **Revenir aux valeurs du modèle** (reset to template values) restores the pane's inheritance.
-6. **Lancer le projet** (launch project) saves the configuration, checks the directories, then opens a new Windows Terminal window.
+4. Optionally, set the **Racine des workspaces WSL** (WSL workspaces root) in **Paramètres** (settings, gear icon at the bottom of the sidebar): new projects start with this root, and the root field suggests its subfolders (listed in the project's distribution) while still accepting any path. Picking a subfolder for a new project also names it after that folder.
+5. In **Projets** (projects), create a project and set its absolute Linux root, its WSL distribution and its template. The **Windows Terminal profile** (name or GUID, optional) gives the panes their colors and font; when empty, RunTerm uses the profile named after the distribution.
+6. Customize commands or directories for this project if needed. **Revenir aux valeurs du modèle** (reset to template values) restores the pane's inheritance.
+7. **Lancer le projet** (launch project) saves the configuration, checks the directories, then opens a new Windows Terminal window.
 
 The bundled template matches the example: Codex and Claude on top, a free shell, a Uvicorn backend and a frontend shell at the bottom. The tools must be installed in the WSL distribution; RunTerm does not install them.
 

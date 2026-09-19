@@ -12,13 +12,13 @@ import {
   Layers,
   LayoutTemplate,
   LoaderCircle,
-  PanelLeftClose,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Rows2,
   Save,
+  Settings,
   Terminal,
   Trash2,
   X,
@@ -32,6 +32,7 @@ import {
   type Template,
   duplicateLayout,
   effectivePane,
+  joinPath,
   moveItem,
   newPane,
   panes,
@@ -176,6 +177,9 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<"save" | "launch" | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folderScan, setFolderScan] = useState(0);
   const [dragId, setDragId] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [update, setUpdate] = useState<AvailableUpdate | null>(null);
@@ -227,6 +231,27 @@ export default function App() {
       alive.current = false;
     };
   }, []);
+  const workspaceRoot = config?.workspaceRoot ?? "";
+  const folderDistribution =
+    config?.projects.find((p) => p.id === selectedId)?.distribution ?? "";
+  useEffect(() => {
+    if (!workspaceRoot.startsWith("/")) {
+      setFolders([]);
+      return;
+    }
+    let stale = false;
+    // Debounced: the root is typed in the settings and each listing spawns wsl.exe.
+    const timer = setTimeout(() => {
+      api
+        .directories(folderDistribution, workspaceRoot)
+        .then((data) => !stale && setFolders(data))
+        .catch(() => !stale && setFolders([]));
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [workspaceRoot, folderDistribution, folderScan]);
   const dirty = config !== null && JSON.stringify(config) !== baseline;
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -317,6 +342,23 @@ export default function App() {
         t.id === template?.id ? { ...t, layout: fn(t.layout) } : t,
       ),
     }));
+  const deleteSelectedPane = () => {
+    if (!template || !selectedPane || allPanes.length === 1) return;
+    const id = selectedPane.id;
+    mutate((data) => ({
+      ...data,
+      templates: data.templates.map((t) =>
+        t.id === template.id ? { ...t, layout: removePane(t.layout, id) } : t,
+      ),
+      // Drop the overrides that pointed to the removed pane.
+      projects: data.projects.map((p) => {
+        if (p.templateId !== template.id || !(id in p.overrides)) return p;
+        const { [id]: _removed, ...overrides } = p.overrides;
+        return { ...p, overrides };
+      }),
+    }));
+    setPaneId("");
+  };
   const editPane = (patch: Partial<Pane>) => {
     if (!selectedPane) return;
     if (project) {
@@ -365,7 +407,9 @@ export default function App() {
       const item: Project = {
         id: uid(),
         name: "Nouveau projet",
-        root: "/home/",
+        root: workspaceRoot.startsWith("/")
+          ? joinPath(workspaceRoot, "")
+          : "/home/",
         distribution: "",
         templateId: first.id,
         overrides: {},
@@ -602,6 +646,14 @@ export default function App() {
               {version && ` · v${version}`}
             </small>
           </div>
+          <button
+            className="icon-button settings-button"
+            aria-label="Paramètres"
+            title="Paramètres"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings size={14} />
+          </button>
           {desktop && (
             <button
               className="icon-button update-check"
@@ -783,12 +835,35 @@ export default function App() {
                         Dossier racine WSL
                         <input
                           className="mono"
-                          placeholder="/home/utilisateur/workspaces/projet"
-                          value={project.root}
-                          onChange={(e) =>
-                            editProject({ root: e.target.value })
+                          placeholder={
+                            workspaceRoot.startsWith("/")
+                              ? joinPath(workspaceRoot, "projet")
+                              : "/home/utilisateur/workspaces/projet"
                           }
+                          list="workspace-folders"
+                          title="Choisissez un dossier du workspace ou saisissez un chemin."
+                          value={project.root}
+                          onFocus={() => setFolderScan((n) => n + 1)}
+                          onChange={(e) => {
+                            const root = e.target.value;
+                            const folder = folders.find(
+                              (f) => joinPath(workspaceRoot, f) === root,
+                            );
+                            // A freshly created project takes the folder's name.
+                            editProject(
+                              folder && project.name === "Nouveau projet"
+                                ? { root, name: folder }
+                                : { root },
+                            );
+                          }}
                         />
+                        <datalist id="workspace-folders">
+                          {folders.map((f) => (
+                            <option key={f} value={joinPath(workspaceRoot, f)}>
+                              {f}
+                            </option>
+                          ))}
+                        </datalist>
                       </label>
                       <label>
                         Distribution
@@ -940,19 +1015,17 @@ export default function App() {
                           Haut / bas
                         </button>
                         <button
-                          className="icon-button danger"
+                          className="button secondary small danger"
                           disabled={allPanes.length === 1}
-                          aria-label="Supprimer le panneau"
-                          onClick={() => {
-                            if (selectedPane) {
-                              changeLayout((layout) =>
-                                removePane(layout, selectedPane.id),
-                              );
-                              setPaneId("");
-                            }
-                          }}
+                          title={
+                            allPanes.length === 1
+                              ? "Un modèle garde au moins un panneau."
+                              : undefined
+                          }
+                          onClick={deleteSelectedPane}
                         >
-                          <PanelLeftClose size={17} />
+                          <Trash2 size={16} />
+                          Supprimer le panneau
                         </button>
                       </div>
                     )}
@@ -1167,6 +1240,47 @@ export default function App() {
           )}
         </div>
       </main>
+      {settingsOpen && (
+        <div className="modal-backdrop">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            className="modal settings-modal"
+            onKeyDown={(e) => e.key === "Escape" && setSettingsOpen(false)}
+          >
+            <Settings size={25} />
+            <h2 id="settings-title">Paramètres</h2>
+            <label>
+              Racine des workspaces WSL
+              <input
+                autoFocus
+                className="mono"
+                placeholder="/home/utilisateur/workspaces"
+                value={workspaceRoot}
+                onChange={(e) =>
+                  mutate((data) => ({
+                    ...data,
+                    workspaceRoot: e.target.value || undefined,
+                  }))
+                }
+              />
+            </label>
+            <p>
+              Préremplit le dossier racine des nouveaux projets et propose ses
+              sous-dossiers. Enregistrez pour conserver ce réglage.
+            </p>
+            <div>
+              <button
+                className="button secondary"
+                onClick={() => setSettingsOpen(false)}
+              >
+                Fermer
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {deleting && (
         <div className="modal-backdrop">
           <section
