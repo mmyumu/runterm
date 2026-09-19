@@ -90,6 +90,29 @@ describe("layouts partagés", () => {
     expect(withProfile("a;b")).not.toBeNull();
     expect(withProfile("--help")).not.toBeNull();
   });
+  it("valide l’hôte SSH optionnel", () => {
+    const config = initialConfig();
+    const withHost = (host?: string) =>
+      validateConfig({
+        ...config,
+        projects: [
+          {
+            id: "p",
+            name: "P",
+            distribution: "",
+            root: "/p",
+            host,
+            templateId: config.templates[0].id,
+            overrides: {},
+          },
+        ],
+      });
+    expect(withHost(undefined)).toBeNull();
+    expect(withHost("me@dev-vm.example.com")).toBeNull();
+    expect(withHost("-oProxyCommand=x")).not.toBeNull();
+    expect(withHost("a b")).not.toBeNull();
+    expect(withHost("a;b")).not.toBeNull();
+  });
   it("valide la racine des workspaces optionnelle", () => {
     const config = initialConfig();
     expect(validateConfig({ ...config, workspaceRoot: "" })).toBeNull();

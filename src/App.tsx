@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Layers,
   LayoutTemplate,
+  ListVideo,
   LoaderCircle,
   PanelTop,
   Play,
@@ -43,10 +44,11 @@ import {
   validateConfig,
 } from "./model";
 
-function shellLabel(items: Pane[]) {
+function shellLabel(items: Pane[], host = "") {
   const powershell = items.filter((p) => p.shell === "powershell").length;
-  if (!powershell) return "BASH / WSL";
-  return powershell === items.length ? "POWERSHELL" : "BASH / WSL + POWERSHELL";
+  const bash = host ? `BASH / SSH ${host}` : "BASH / WSL";
+  if (!powershell) return bash;
+  return powershell === items.length ? "POWERSHELL" : `${bash} + POWERSHELL`;
 }
 
 function LayoutPreview({
@@ -200,7 +202,7 @@ function LaunchToggle({
       }
       onClick={onToggle}
     >
-      <Play size={13} fill={on ? "currentColor" : "none"} />
+      <ListVideo size={14} strokeWidth={on ? 2.4 : 2} />
     </button>
   );
 }
@@ -216,7 +218,9 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   // "launch": the edited project; a mode: the "launch all" buttons.
-  const [busy, setBusy] = useState<"save" | "launch" | LaunchMode | null>(null);
+  const [busy, setBusy] = useState<
+    "save" | LaunchMode | `launch:${string}` | null
+  >(null);
   const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
@@ -513,8 +517,11 @@ export default function App() {
     setSelectedId("");
     setDeleting(false);
   };
-  /** Saves, then launches `launch` when given: the backend reads the saved state. */
-  const save = async (launch?: { all: boolean; mode: LaunchMode }) => {
+  /**
+   * Saves, then launches when `launch` is given: one project, or every
+   * `launchAll` project without `project`. The backend reads the saved state.
+   */
+  const save = async (launch?: { project?: string; mode: LaunchMode }) => {
     if (busy) return;
     const invalid = validateConfig(config);
     if (invalid) {
@@ -524,13 +531,17 @@ export default function App() {
     const snapshot = config;
     const ids = !launch
       ? []
-      : launch.all
-        ? snapshot.projects.filter((p) => p.launchAll).map((p) => p.id)
-        : project
-          ? [project.id]
-          : [];
+      : launch.project
+        ? [launch.project]
+        : snapshot.projects.filter((p) => p.launchAll).map((p) => p.id);
     if (launch && !ids.length) return;
-    setBusy(!launch ? "save" : launch.all ? launch.mode : "launch");
+    setBusy(
+      !launch
+        ? "save"
+        : launch.project
+          ? `launch:${launch.project}`
+          : launch.mode,
+    );
     setError("");
     setNotice("");
     try {
@@ -699,6 +710,28 @@ export default function App() {
                 <span className="entry-name">{item.name}</span>
                 {selectedId === item.id && <ChevronRight size={14} />}
               </button>
+              {view === "projects" && (
+                <button
+                  type="button"
+                  className="row-launch"
+                  disabled={!!busy || !desktop}
+                  aria-label={`Lancer ${item.name}`}
+                  title={
+                    !desktop
+                      ? "Disponible dans l’application Windows"
+                      : "Enregistrer et lancer le projet"
+                  }
+                  onClick={() =>
+                    void save({ project: item.id, mode: "windows" })
+                  }
+                >
+                  {busy === `launch:${item.id}` ? (
+                    <LoaderCircle className="spin" size={13} />
+                  ) : (
+                    <Play size={13} />
+                  )}
+                </button>
+              )}
             </div>
           ))}
           {!list.length && (
@@ -736,10 +769,10 @@ export default function App() {
                     !desktop
                       ? "Disponible dans l’application Windows"
                       : !launchCount
-                        ? "Activez ▶ devant les projets à lancer"
+                        ? "Cochez l’icône de liste devant les projets à lancer"
                         : `Enregistrer et lancer les projets activés : ${detail}`
                   }
-                  onClick={() => void save({ all: true, mode })}
+                  onClick={() => void save({ mode })}
                 >
                   {busy === mode ? (
                     <LoaderCircle className="spin" size={14} />
@@ -946,17 +979,38 @@ export default function App() {
                   </label>
                   {project ? (
                     <>
+                      <label>
+                        Hôte SSH
+                        <input
+                          className="mono"
+                          placeholder="Aucun : WSL local"
+                          title="Destination SSH (utilisateur@machine ou alias de ~/.ssh/config), jointe avec le ssh de la distribution. Vide : les panneaux s’ouvrent dans WSL."
+                          value={project.host ?? ""}
+                          onChange={(e) =>
+                            editProject({ host: e.target.value || undefined })
+                          }
+                        />
+                      </label>
                       <label className="root-field">
-                        Dossier racine WSL
+                        {project.host
+                          ? "Dossier racine sur l’hôte"
+                          : "Dossier racine WSL"}
                         <input
                           className="mono"
                           placeholder={
-                            workspaceRoot.startsWith("/")
-                              ? joinPath(workspaceRoot, "projet")
-                              : "/home/utilisateur/workspaces/projet"
+                            project.host
+                              ? "/home/utilisateur/projet"
+                              : workspaceRoot.startsWith("/")
+                                ? joinPath(workspaceRoot, "projet")
+                                : "/home/utilisateur/workspaces/projet"
                           }
-                          list="workspace-folders"
-                          title="Choisissez un dossier du workspace ou saisissez un chemin."
+                          // The workspace folders are listed in WSL, not on the host.
+                          list={project.host ? undefined : "workspace-folders"}
+                          title={
+                            project.host
+                              ? "Chemin absolu du projet sur l’hôte SSH."
+                              : "Choisissez un dossier du workspace ou saisissez un chemin."
+                          }
                           value={project.root}
                           onFocus={() => setFolderScan((n) => n + 1)}
                           onChange={(e) => {
@@ -981,7 +1035,9 @@ export default function App() {
                         </datalist>
                       </label>
                       <label>
-                        Distribution
+                        {project.host
+                          ? "Distribution (client ssh)"
+                          : "Distribution"}
                         <select
                           value={project.distribution}
                           onChange={(e) =>
@@ -1084,7 +1140,7 @@ export default function App() {
                         {project?.name ?? template.name}
                       </span>
                       <span className="terminal-label">
-                        {shellLabel(allPanes)}
+                        {shellLabel(allPanes, project?.host)}
                       </span>
                     </div>
                     <div className="layout-canvas">
@@ -1364,9 +1420,11 @@ export default function App() {
                           ? "Disponible dans l’application Windows"
                           : "Enregistrer et lancer le projet"
                       }
-                      onClick={() => void save({ all: false, mode: "windows" })}
+                      onClick={() =>
+                        void save({ project: project.id, mode: "windows" })
+                      }
                     >
-                      {busy === "launch" ? (
+                      {busy === `launch:${project.id}` ? (
                         <LoaderCircle className="spin" size={16} />
                       ) : (
                         <Play size={16} />

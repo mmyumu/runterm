@@ -26,6 +26,8 @@ export type Project = {
   id: string;
   name: string;
   root: string;
+  /** SSH destination reached with the distribution's `ssh`; `root` is then on that host. Absent: WSL. */
+  host?: string;
   distribution: string;
   /** Windows Terminal profile (name or GUID); absent: named after the distribution. */
   terminalProfile?: string;
@@ -162,6 +164,9 @@ export function validateConfig(config: Config): string | null {
     if (!project.name.trim()) return "Donnez un nom au projet.";
     if (!project.root.startsWith("/"))
       return "La racine du projet doit être un chemin Linux absolu.";
+    const host = project.host ?? "";
+    if (host.startsWith("-") || !/^[A-Za-z0-9._@:-]*$/.test(host))
+      return "Hôte SSH invalide (lettres, chiffres et « . _ - @ : » uniquement).";
     const profile = project.terminalProfile ?? "";
     if (/[\0\r\n;]/.test(profile) || profile.trimStart().startsWith("-"))
       return "Profil Windows Terminal invalide (point-virgule, retour à la ligne ou tiret initial).";

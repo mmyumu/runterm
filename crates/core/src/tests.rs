@@ -21,6 +21,7 @@ fn config() -> Config {
             id: "p".into(),
             name: "Projet".into(),
             root: "/home/me/project".into(),
+            host: String::new(),
             distribution: "Ubuntu".into(),
             terminal_profile: String::new(),
             template_id: "t".into(),
@@ -658,4 +659,141 @@ fn launch_all_is_optional_in_json() {
     let json = serde_json::to_value(&c).unwrap();
     assert_eq!(json["projects"][0]["launchAll"], true);
     assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
+}
+
+#[test]
+fn host_is_optional_and_validated() {
+    let mut c = config();
+    let json = serde_json::to_value(&c).unwrap();
+    assert!(json["projects"][0].get("host").is_none());
+    for good in ["vps", "me@dev-vm.example.com", "me@10.0.0.2", "::1"] {
+        c.projects[0].host = good.into();
+        assert!(c.validate().is_ok(), "{good}");
+    }
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["projects"][0]["host"], "::1");
+    assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
+    for bad in [
+        "-oProxyCommand=x",
+        "a b",
+        "a;b",
+        "a'b",
+        "a\"b",
+        "h\n",
+        "$(x)",
+    ] {
+        c.projects[0].host = bad.into();
+        assert!(c.validate().is_err(), "{bad:?}");
+        assert!(ssh_command(bad, "").is_err());
+    }
+    assert!(ssh_command("", "").is_err());
+}
+#[test]
+fn ssh_panes_run_ssh_from_wsl() {
+    let l = split(Axis::Columns, pane("a"), pane("b"));
+    let launches = BTreeMap::from([
+        (
+            "a".into(),
+            PaneLaunch::Ssh {
+                host: "me@vm".into(),
+                script: "echo 'a ; \"b\"'".into(),
+            },
+        ),
+        (
+            "b".into(),
+            PaneLaunch::Ssh {
+                host: "me@vm".into(),
+                script: String::new(),
+            },
+        ),
+    ]);
+    let args = terminal_args(&l, "Ubuntu", "Ubuntu", &launches).unwrap();
+    let command = ssh_command("me@vm", "echo 'a ; \"b\"'").unwrap();
+    assert!(args.windows(11).any(|a| a
+        == [
+            "--profile",
+            "Ubuntu",
+            "--title",
+            "a",
+            "--",
+            "wsl.exe",
+            "--distribution",
+            "Ubuntu",
+            "--exec",
+            "bash",
+            "-lic",
+        ]));
+    assert!(args.contains(&command));
+    // Windows Terminal splits on `;` and may not relay `"` to wsl.exe.
+    assert!(args.iter().all(|a| a == ";" || !a.contains([';', '"'])));
+    assert_eq!(simulate_windows_terminal(&args), "-V 0.500000(a,b) focus=a");
+}
+/// Runs `ssh_command` with a fake `ssh` that hands the remote command to
+/// `sh -c`, as sshd does with the user's login shell.
+#[cfg(unix)]
+#[test]
+fn ssh_command_runs_the_pane_script_on_the_host() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+    let d = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    let fake = bin.path().join("ssh");
+    fs::write(
+        &fake,
+        "#!/bin/sh\n[ \"$1 $2 $3\" = '-t -- me@vm' ] || exit 99\nexec sh -c \"$4\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let output_file = d.path().join("result ; 'quoted'.txt");
+    let pane = ResolvedPane {
+        id: "a".into(),
+        name: "a".into(),
+        directory: d.path().to_str().unwrap().into(),
+        commands: vec![
+            "export RUNTERM_TEST='hello ; \"world\"'".into(),
+            format!(
+                "printf '%s\\n' \"$RUNTERM_TEST $PWD\" > {}",
+                shell_quote(output_file.to_str().unwrap())
+            ),
+        ],
+        shell: Shell::Bash,
+    };
+    let mut child = Command::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-c",
+            &ssh_command("me@vm", &pane_script(&pane)).unwrap(),
+        ])
+        .env("HOME", home.path())
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"printf 'PROMPT-%s\\n' \"$PWD\"\nexit\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains(&format!("PROMPT-{}", d.path().display())),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(output_file).unwrap(),
+        format!("hello ; \"world\" {}\n", d.path().display())
+    );
 }

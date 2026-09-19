@@ -263,7 +263,12 @@ it("choisit les projets lancés par « Tout lancer » et s’en souvient", async
   );
   expect(group.textContent).toContain("2 projets");
   // Launching needs the Windows app.
-  for (const label of ["Tout lancer en onglets", "Tout lancer en fenêtres"])
+  for (const label of [
+    "Tout lancer en onglets",
+    "Tout lancer en fenêtres",
+    "Lancer Second",
+    "Lancer Nouveau projet",
+  ])
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: label }).disabled,
     ).toBe(true);

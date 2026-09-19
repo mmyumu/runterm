@@ -219,6 +219,22 @@ nav {
 .launch-toggle.on {
   color: #6db093;
 }
+.row-launch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #4c6559;
+}
+.row-launch:hover:not(:disabled) {
+  background: #1b2c24;
+  color: #6db093;
+}
 .launch-all {
   border-top: 1px solid #263b30;
   padding: 14px 0 16px;
@@ -1036,7 +1052,7 @@ textarea {
 }
 @media (min-width: 1450px) {
   .config-fields {
-    grid-template-columns: 1fr 1.8fr 1fr 1.2fr 1.2fr;
+    grid-template-columns: 1fr 1fr 1.8fr;
   }
   .template-fields {
     grid-template-columns: 1fr 2fr;

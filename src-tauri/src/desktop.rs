@@ -206,6 +206,9 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
     } else {
         project.terminal_profile.clone()
     };
+    if !project.host.is_empty() {
+        return prepare_ssh(project, template, &panes, profile);
+    }
     for pane in &panes {
         wsl(
             &project.distribution,
@@ -311,6 +314,40 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
             Err(e)
         }
     }
+}
+/// Panes on an SSH host: their scripts travel in the `ssh` command line, so
+/// nothing is written or checked beforehand; a missing folder is reported in
+/// its pane.
+fn prepare_ssh(
+    project: &core::Project,
+    template: &core::Template,
+    panes: &[core::ResolvedPane],
+    profile: String,
+) -> Result<Prepared, String> {
+    if let Some(pane) = panes.iter().find(|p| p.shell == core::Shell::Powershell) {
+        return Err(format!(
+            "Le panneau PowerShell « {} » ne peut pas s’ouvrir sur un hôte SSH.",
+            pane.name
+        ));
+    }
+    let prepared = Prepared {
+        layout: template.layout.clone(),
+        distribution: project.distribution.clone(),
+        profile,
+        launches: panes
+            .iter()
+            .map(|p| {
+                let launch = core::PaneLaunch::Ssh {
+                    host: project.host.clone(),
+                    script: core::pane_script(p),
+                };
+                (p.id.clone(), launch)
+            })
+            .collect(),
+        folder: None,
+    };
+    core::tabs_args(&[prepared.tab()])?;
+    Ok(prepared)
 }
 #[derive(Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -471,6 +508,7 @@ mod tests {
                 id: "p".into(),
                 name: "Smoke".into(),
                 root: folder.clone(),
+                host: String::new(),
                 distribution: String::new(),
                 terminal_profile: String::new(),
                 template_id: "t".into(),

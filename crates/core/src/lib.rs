@@ -63,6 +63,11 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub root: String,
+    /// SSH destination (`user@host` or a `~/.ssh/config` alias) the panes
+    /// connect to with the `ssh` of `distribution`; `root` is then a folder
+    /// on that host. Empty: the panes run in WSL.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host: String,
     pub distribution: String,
     /// Windows Terminal profile (name or GUID) giving the panes their look.
     /// Empty: the profile named after the distribution.
@@ -158,6 +163,18 @@ fn valid_text(value: &str, field: &str) -> Result<(), String> {
     }
     Ok(())
 }
+/// Kept to characters `ssh` reads as a destination and that no shell or
+/// Windows Terminal interprets; a leading `-` would be an option.
+fn valid_host(value: &str) -> Result<(), String> {
+    if value.starts_with('-')
+        || !value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._-@:".contains(&c))
+    {
+        return Err("Hôte SSH invalide (lettres, chiffres et « . _ - @ : » uniquement).".into());
+    }
+    Ok(())
+}
 fn valid_directory(value: &str) -> Result<(), String> {
     if value.starts_with('/') || value.contains('\0') || value.split('/').any(|s| s == "..") {
         return Err("Le dossier du panneau doit être relatif à la racine, sans « .. ».".into());
@@ -199,6 +216,7 @@ impl Config {
             if !project.root.starts_with('/') || project.root.contains('\0') {
                 return Err("La racine doit être un chemin Linux absolu.".into());
             }
+            valid_host(&project.host)?;
             if project.distribution.contains(['\0', '\r', '\n', ';']) {
                 return Err("Distribution invalide.".into());
             }
@@ -384,11 +402,16 @@ pub fn powershell_script(pane: &ResolvedPane, directory: &str) -> String {
     script
 }
 
-/// Value for `-EncodedCommand`: base64 of the UTF-16LE script. Its alphabet
-/// has no `;`, which Windows Terminal would read as a command separator.
+/// Value for `-EncodedCommand`: base64 of the UTF-16LE script.
 fn encode_powershell(script: &str) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    base64(&bytes)
+}
+
+/// Standard base64. Its alphabet has no `;`, which Windows Terminal would read
+/// as a command separator, and nothing a shell interprets.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
         let n = chunk
@@ -406,6 +429,28 @@ fn encode_powershell(script: &str) -> String {
     out
 }
 
+/// Bash command, run by `bash -lic` in WSL, connecting to `host` and running
+/// `script` there as the rcfile of an interactive Bash, like [`pane_script`]
+/// in WSL. The script travels in base64 inside the remote command, so nothing
+/// is written on the host and authentication happens in the pane.
+pub fn ssh_command(host: &str, script: &str) -> Result<String, String> {
+    valid_host(host)?;
+    if host.is_empty() {
+        return Err("Hôte SSH absent.".into());
+    }
+    // Parsed by the user's login shell on the host (sh, bash, zsh or fish):
+    // only single quotes, and no `"`, which Windows Terminal may not relay.
+    let remote = format!(
+        "exec bash -lc 'exec bash --rcfile <(base64 -d <<<$1) -i' runterm {}",
+        base64(script.as_bytes())
+    );
+    Ok(format!(
+        "exec ssh -t -- {} {}",
+        shell_quote(host),
+        shell_quote(&remote)
+    ))
+}
+
 /// How Windows Terminal starts one pane.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaneLaunch {
@@ -414,6 +459,8 @@ pub enum PaneLaunch {
     /// PowerShell running this script, then staying interactive. `pwsh`
     /// selects PowerShell 7 instead of Windows PowerShell.
     Powershell { script: String, pwsh: bool },
+    /// `ssh` in WSL, connecting to `host` and running this [`pane_script`].
+    Ssh { host: String, script: String },
 }
 
 /// Windows limits a command line to 32,767 characters.
@@ -478,7 +525,8 @@ pub fn tabs_args(tabs: &[TabLaunch]) -> Result<Vec<String>, String> {
     }
     if out.iter().map(|a| a.len() + 3).sum::<usize>() > MAX_COMMAND_LINE {
         return Err(
-            "Commande Windows Terminal trop longue : raccourcissez les actions PowerShell.".into(),
+            "Commande Windows Terminal trop longue : raccourcissez les actions PowerShell ou SSH."
+                .into(),
         );
     }
     Ok(out)
@@ -537,6 +585,22 @@ fn tab_args(tab: &TabLaunch, out: &mut Vec<String>) -> Result<(), String> {
                     "-lic".into(),
                     format!("exec bash --rcfile {} -i", shell_quote(path)),
                 ]);
+            }
+            PaneLaunch::Ssh { host, script } => {
+                if !profile.is_empty() {
+                    out.extend(["--profile".into(), profile.into()]);
+                }
+                out.extend([
+                    "--title".into(),
+                    name.clone(),
+                    "--".into(),
+                    "wsl.exe".into(),
+                ]);
+                if !distribution.is_empty() {
+                    out.extend(["--distribution".into(), distribution.into()]);
+                }
+                out.extend(["--exec".into(), "bash".into(), "-lic".into()]);
+                out.push(ssh_command(host, script)?);
             }
             PaneLaunch::Powershell { script, pwsh } => {
                 let (profile, program) = if *pwsh {
