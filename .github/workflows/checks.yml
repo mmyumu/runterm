@@ -25,6 +25,8 @@ jobs:
       - run: cargo test -p runterm-core --locked
       - run: cargo clippy -p runterm-core --all-targets --locked -- -D warnings
   windows:
+    # release.yml builds and tests the same commit from its tag; one is enough.
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release v') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,11 +35,15 @@ jobs:
           node-version: '22'
           cache: npm
       - uses: dtolnay/rust-toolchain@1.94.0
+      # The 480-odd dependencies dominate this job; release.yml shares the cache.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
       - run: npm ci
-      - run: npm run check
-      - run: cargo test -p runterm-core --locked
-      - run: cargo test -p runterm --locked
-      # Updater signing needs the release key; releases are built by release.yml.
+      # The frontend and runterm-core are checked on Linux; `tauri build` runs
+      # `npm run build` itself. Tested in release so the build reuses the
+      # dependencies instead of compiling them a second time in debug.
+      - run: cargo test -p runterm --locked --release
       - run: npm run tauri -- build --no-sign
       - uses: actions/upload-artifact@v4
         with:

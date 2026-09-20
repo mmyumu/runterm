@@ -43,10 +43,16 @@ jobs:
           node-version: '22'
           cache: npm
       - uses: dtolnay/rust-toolchain@1.94.0
+      # The 480-odd dependencies dominate this job; shared with checks.yml.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
       - run: npm ci
       - run: npm run check
       - run: cargo test -p runterm-core --locked
-      - run: cargo test -p runterm --locked
+      # Tested in release so the build below reuses the dependencies instead of
+      # compiling them a second time in debug.
+      - run: cargo test -p runterm --locked --release
       - name: Build and sign the installer
         run: npm run tauri -- build
         env:
