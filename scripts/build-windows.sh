@@ -5,10 +5,25 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Without this check the first cmd.exe call dies under `set -e` without a word.
+if ! cmd.exe /c exit >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+Cannot run Windows programs from WSL: interop is disabled.
+Restart WSL (`wsl --shutdown` in PowerShell, then reopen the distribution), or
+register it again for this session:
+  sudo sh -c 'echo ":WSLInterop:M::MZ::/init:PF" > /proc/sys/fs/binfmt_misc/register'
+EOF
+  exit 1
+fi
+
 if [[ -n "${RUNTERM_WIN_BUILD_DIR:-}" ]]; then
   build_dir="$RUNTERM_WIN_BUILD_DIR"
 else
   win_profile="$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')"
+  if [[ -z "$win_profile" ]]; then
+    echo "Could not read %USERPROFILE%; set RUNTERM_WIN_BUILD_DIR to a /mnt/... folder." >&2
+    exit 1
+  fi
   build_dir="$(wslpath -u "$win_profile")/runterm-build"
 fi
 
