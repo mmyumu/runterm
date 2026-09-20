@@ -20,6 +20,9 @@ it("crée et sauvegarde un projet avec une commande personnalisée", async () =>
   const root = screen.getByLabelText("Dossier racine WSL");
   await user.clear(root);
   await user.type(root, "/home/me/workspaces/betalab");
+  // With a project open, creating one stays on the sidebar button.
+  expect(screen.queryByRole("button", { name: "Nouveau projet" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Créer un projet" })).toBeTruthy();
   await user.click(
     screen.getByRole("button", { name: "Sélectionner le panneau Backend" }),
   );

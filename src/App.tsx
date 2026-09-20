@@ -884,10 +884,14 @@ export default function App() {
                   : "Composez un espace de travail et réutilisez-le dans tous vos projets."}
               </p>
             </div>
-            <button className="button secondary" onClick={() => create(view)}>
-              <Plus size={16} />
-              {view === "projects" ? "Nouveau projet" : "Nouveau modèle"}
-            </button>
+            {/* While an item is open the heading describes the list, not it:
+                creating stays on the sidebar's "+" button. */}
+            {!template && (
+              <button className="button secondary" onClick={() => create(view)}>
+                <Plus size={16} />
+                {view === "projects" ? "Nouveau projet" : "Nouveau modèle"}
+              </button>
+            )}
           </div>
           {(error || notice) && (
             <div
