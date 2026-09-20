@@ -478,6 +478,59 @@ fn bash_sequence_preserves_environment_and_stops_on_failure() {
 
 #[cfg(unix)]
 #[test]
+fn actions_are_recallable_from_the_shell_history() {
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    fs::write(home.path().join(".bashrc"), "HISTCONTROL=ignoreboth\n").unwrap();
+    let pane = ResolvedPane {
+        id: "a".into(),
+        name: "a".into(),
+        directory: dir.path().to_str().unwrap().into(),
+        commands: vec![
+            "export RUNTERM_TEST=1".into(),
+            "  python3 server.py --db 'it is fine.sqlite3'".into(),
+        ],
+        shell: Shell::Bash,
+    };
+    let rc = dir.path().join("rc");
+    fs::write(&rc, pane_script(&pane)).unwrap();
+    let dump = dir.path().join("history");
+    let mut child = Command::new("bash")
+        .args(["--noprofile", "--rcfile", rc.to_str().unwrap(), "-i"])
+        .env("HOME", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("history -w {}\nexit\n", shell_quote(dump.to_str().unwrap())).as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap();
+    let history: Vec<String> = fs::read_to_string(&dump)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    // The second action failed (no server.py), so only the recall matters here:
+    // both actions are there, in order, and the last one is one up arrow away.
+    let first = history
+        .iter()
+        .position(|l| l == "export RUNTERM_TEST=1")
+        .unwrap_or_else(|| panic!("{history:?}"));
+    assert_eq!(
+        history[first + 1],
+        "python3 server.py --db 'it is fine.sqlite3'",
+        "{history:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn ctrl_c_interrupts_sequence_and_keeps_interactive_prompt() {
     use std::process::Command;
     let dir = tempfile::tempdir().unwrap();

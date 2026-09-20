@@ -27,7 +27,7 @@ Run these files from Windows. The binary is built and tested; it is not signed. 
 
 The bundled template matches the example: Codex and Claude on top, a free shell, a Uvicorn backend and a frontend shell at the bottom. The tools must be installed in the WSL distribution; RunTerm does not install them.
 
-Each pane has its own shell. Its actions share directory and environment changes. An interactive command or a server blocks the following actions until it exits. A failure or Ctrl+C stops the sequence and leaves the prompt available. `exit` deliberately closes the shell. Panes start independently: there is no waiting mechanism between services.
+Each pane has its own shell. Its actions share directory and environment changes. An interactive command or a server blocks the following actions until it exits. A failure or Ctrl+C stops the sequence and leaves the prompt available. Each action is added to the Bash history, so the up arrow recalls it as if it had been typed. `exit` deliberately closes the shell. Panes start independently: there is no waiting mechanism between services.
 
 A PowerShell pane runs on Windows, with PowerShell 7 (`pwsh.exe`) when installed, otherwise Windows PowerShell, and the Windows Terminal profile named `PowerShell` or `Windows PowerShell`. It starts in the project folder through its `\\wsl.localhost\<distribution>\...` path; programs started through `cmd.exe` (batch files) do not support such a path as working directory. Its actions run in the session's scope, so variables and functions they define stay available; an exception, a failed command or a non-zero `$LASTEXITCODE` stops the sequence. The script is passed with `-EncodedCommand`, without temporary files.
 

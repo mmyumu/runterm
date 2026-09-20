@@ -334,6 +334,13 @@ pub fn pane_script(pane: &ResolvedPane) -> String {
         if command.trim().is_empty() {
             continue;
         }
+        // The action is pushed on the history list so the up arrow recalls it,
+        // as if the user had typed it. Trimmed, because a leading space keeps
+        // the entry out of the history under the common `HISTCONTROL=ignoreboth`.
+        script.push_str(&format!(
+            "    builtin history -s -- {}\n",
+            shell_quote(command.trim())
+        ));
         script.push_str(&format!("    builtin eval -- {}\n    local __rt_status=$?\n    if (( __rt_status != 0 )); then\n      printf 'RunTerm : action {} interrompue (code %s).\\n' \"$__rt_status\" >&2\n      return \"$__rt_status\"\n    fi\n", shell_quote(command), index + 1));
     }
     // Run only once, after Bash has completed initialization and enabled job control.

@@ -9,7 +9,7 @@ Run in the Windows Tauri app, with a test WSL distribution. The automated Linux 
 5. Customize a command in the second project only. Then edit the template: the first project inherits, the second keeps its command. Use the reset button to restore inheritance.
 6. In a pane, configure three actions: `export RUNTERM_CHECK='a ; b'`, `printf '%s\n' "$RUNTERM_CHECK"`, `pwd`. Check the order and the shared environment; the final prompt remains usable.
 7. Configure `false` then `echo MUST_NOT_APPEAR`. Check that the sequence stops, the error message and the final prompt.
-8. Add an action after the HTTP server. Stop the server with Ctrl+C: the prompt comes back and the next action does not start. Also check that a program exiting normally lets the sequence continue.
+8. Add an action after the HTTP server. Stop the server with Ctrl+C: the prompt comes back and the next action does not start. Also check that a program exiting normally lets the sequence continue. Then press the up arrow: the server command line comes back, ready to be replayed.
 9. Test a root containing spaces and an apostrophe, as well as commands containing quotes, `$()`, semicolons and multiple lines. Only the entered commands must be interpreted as Bash.
 10. Select a missing distribution (by editing a copy of the JSON) or a nonexistent directory. The app must show an error without opening a partial layout.
 11. Save, close and reopen RunTerm: projects, templates and customizations are identical. Closing RunTerm after a launch leaves the terminals running.
