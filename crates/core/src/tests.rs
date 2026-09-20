@@ -25,6 +25,7 @@ fn config() -> Config {
             distribution: "Ubuntu".into(),
             terminal_profile: String::new(),
             url: String::new(),
+            url_disabled: false,
             template_id: "t".into(),
             overrides: BTreeMap::new(),
             launch_all: false,
@@ -304,6 +305,22 @@ fn url_is_optional_and_validated() {
     }
 }
 #[test]
+fn a_disabled_url_is_kept_but_not_opened() {
+    let mut c = config();
+    c.projects[0].url = "http://localhost:5173".into();
+    assert_eq!(c.projects[0].url_to_open(), "http://localhost:5173");
+    let json = serde_json::to_value(&c).unwrap();
+    assert!(json["projects"][0].get("urlDisabled").is_none());
+    c.projects[0].url_disabled = true;
+    // The address stays in the file, and is still held to the same rules.
+    assert!(c.validate().is_ok());
+    assert_eq!(c.projects[0].url, "http://localhost:5173");
+    assert_eq!(c.projects[0].url_to_open(), "");
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["projects"][0]["urlDisabled"], true);
+    assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
+}
+#[test]
 fn default_browser_is_read_from_its_registry_command() {
     let chrome = "    (Default)    REG_SZ    \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --single-argument %1";
     assert_eq!(
@@ -329,6 +346,38 @@ fn default_browser_is_read_from_its_registry_command() {
     for bad in ["", "\"%1\"", "AppX4hxtad77fbk3jkkeerkrm0ze94wjf3s9"] {
         assert_eq!(browser_executable(bad), None, "{bad:?}");
     }
+}
+#[test]
+fn chromium_browsers_get_a_new_window_for_every_url() {
+    let urls = [
+        "http://localhost:8765".to_owned(),
+        "https://example.com".to_owned(),
+    ];
+    // One flag for the whole command line: the URLs are tabs of that one window.
+    assert_eq!(
+        browser_args(
+            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\MSEDGE.EXE",
+            &urls
+        ),
+        [
+            "--new-window",
+            "http://localhost:8765",
+            "https://example.com"
+        ]
+    );
+    assert_eq!(
+        browser_args(
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+            &urls
+        )[0],
+        "--new-window"
+    );
+    // Firefox has no flag that opens several URLs in one new window.
+    assert_eq!(
+        browser_args("C:\\Program Files\\Mozilla Firefox\\firefox.exe", &urls),
+        urls
+    );
+    assert_eq!(browser_args("chrome.exe", &[]), ["--new-window"]);
 }
 #[test]
 fn workspace_root_is_optional_and_validated() {

@@ -477,6 +477,8 @@ export default function App() {
           ? joinPath(workspaceRoot, "")
           : "/home/",
         distribution: "",
+        // No URL yet, and the box stays clear until the user asks for a browser.
+        urlDisabled: true,
         templateId: first.id,
         overrides: {},
       };
@@ -1151,18 +1153,34 @@ export default function App() {
                           }
                         />
                       </label>
-                      <label>
-                        URL à ouvrir
+                      <div className="field">
+                        <div className="field-head">
+                          <label htmlFor="project-url">URL à ouvrir</label>
+                          <label className="field-check">
+                            <input
+                              type="checkbox"
+                              title="Décoché : l’adresse est conservée mais aucun navigateur ne s’ouvre au lancement."
+                              checked={!project.urlDisabled}
+                              onChange={(e) =>
+                                editProject({
+                                  urlDisabled: !e.target.checked || undefined,
+                                })
+                              }
+                            />
+                            Ouvrir au lancement
+                          </label>
+                        </div>
                         <input
+                          id="project-url"
                           className="mono"
                           placeholder="Aucune : pas de navigateur"
-                          title="Page ouverte dans le navigateur par défaut au lancement du projet, par exemple http://localhost:5173. Plusieurs projets lancés ensemble ouvrent un onglet chacun."
+                          title="Page ouverte dans le navigateur par défaut au lancement du projet, par exemple http://localhost:5173. Plusieurs projets lancés ensemble ouvrent un onglet chacun, dans une nouvelle fenêtre."
                           value={project.url ?? ""}
                           onChange={(e) =>
                             editProject({ url: e.target.value || undefined })
                           }
                         />
-                      </label>
+                      </div>
                       <label>
                         Modèle de layout
                         <select

@@ -115,7 +115,7 @@ describe("layouts partagés", () => {
   });
   it("valide l’URL optionnelle du projet", () => {
     const config = initialConfig();
-    const withUrl = (url?: string) =>
+    const withUrl = (url?: string, urlDisabled?: boolean) =>
       validateConfig({
         ...config,
         projects: [
@@ -125,6 +125,7 @@ describe("layouts partagés", () => {
             distribution: "",
             root: "/p",
             url,
+            urlDisabled,
             templateId: config.templates[0].id,
             overrides: {},
           },
@@ -137,6 +138,9 @@ describe("layouts partagés", () => {
     expect(withUrl("file:///C:/page.html")).not.toBeNull();
     expect(withUrl("http://")).not.toBeNull();
     expect(withUrl("http://a b")).not.toBeNull();
+    // Décochée, l’adresse est conservée et tenue aux mêmes règles.
+    expect(withUrl("http://localhost:5173", true)).toBeNull();
+    expect(withUrl("http://a b", true)).not.toBeNull();
   });
   it("valide la racine des workspaces optionnelle", () => {
     const config = initialConfig();

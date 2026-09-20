@@ -77,11 +77,27 @@ pub struct Project {
     /// web application served by one of its panes. Empty: none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub url: String,
+    /// Keeps `url` in the configuration without opening it at launch, for when
+    /// the browser is not wanted for a while.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub url_disabled: bool,
     pub template_id: String,
     pub overrides: BTreeMap<String, Override>,
     /// Started by the "launch all" buttons.
     #[serde(default, skip_serializing_if = "is_false")]
     pub launch_all: bool,
+}
+impl Project {
+    /// Page to open in the browser when the project is launched. Empty when
+    /// the project has no URL, and when `url_disabled` keeps the value the
+    /// user typed without opening it.
+    pub fn url_to_open(&self) -> &str {
+        if self.url_disabled {
+            ""
+        } else {
+            &self.url
+        }
+    }
 }
 fn is_false(value: &bool) -> bool {
     !value
@@ -519,6 +535,34 @@ pub fn browser_executable(command: &str) -> Option<String> {
         && program.as_bytes()[program.len() - 4..].eq_ignore_ascii_case(b".exe")
         && !program.contains(['%', '\0', '\r', '\n']);
     usable.then(|| program.to_owned())
+}
+
+/// Command line opening `urls` in a **new** window of `program`, the browser
+/// [`browser_executable`] returned. Chromium-based browsers take
+/// `--new-window`, and still gather every URL of one command line into that
+/// single window, so projects launched together share it instead of landing in
+/// the window the user already had open. Other browsers get the URLs alone:
+/// none of their flags both forces a window and keeps the URLs together.
+pub fn browser_args(program: &str, urls: &[String]) -> Vec<String> {
+    const CHROMIUM: [&str; 6] = [
+        "msedge.exe",
+        "chrome.exe",
+        "chromium.exe",
+        "brave.exe",
+        "vivaldi.exe",
+        "opera.exe",
+    ];
+    let file = program
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    let mut args = Vec::with_capacity(urls.len() + 1);
+    if CHROMIUM.contains(&file.as_str()) {
+        args.push("--new-window".to_owned());
+    }
+    args.extend(urls.iter().cloned());
+    args
 }
 
 /// How Windows Terminal starts one pane.

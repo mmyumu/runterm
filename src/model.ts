@@ -33,6 +33,8 @@ export type Project = {
   terminalProfile?: string;
   /** Page opened in the default browser at launch (http(s)); absent: none. */
   url?: string;
+  /** Keeps `url` without opening it at launch; absent: the URL opens. */
+  urlDisabled?: boolean;
   templateId: string;
   overrides: Record<string, PaneOverride>;
   /** Started by the "launch all" buttons; absent: not started. */

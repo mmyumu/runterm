@@ -144,8 +144,9 @@ fn default_browser() -> Option<String> {
     core::browser_executable(&command)
 }
 /// Opens the project pages in the default browser. One browser process
-/// receives them all, so they open as tabs of a single window; browsers
-/// forward them to their already running instance.
+/// receives them all, so they open as tabs of a single *new* window (see
+/// [`core::browser_args`]) instead of the window the user is working in;
+/// browsers forward them to their already running instance.
 fn open_urls(urls: &[String]) -> Result<(), String> {
     if urls.is_empty() {
         return Ok(());
@@ -154,7 +155,7 @@ fn open_urls(urls: &[String]) -> Result<(), String> {
         core::valid_url(url)?;
     }
     match default_browser() {
-        Some(browser) => start(&browser, urls),
+        Some(browser) => start(&browser, &core::browser_args(&browser, urls)),
         // No usable association: Windows opens each URL with its handler.
         None => urls.iter().try_for_each(|url| {
             start(
@@ -230,7 +231,8 @@ struct Prepared {
     distribution: String,
     profile: String,
     launches: BTreeMap<String, core::PaneLaunch>,
-    /// Page to open in the default browser. Empty: none.
+    /// Page to open in the default browser. Empty: none, or the project
+    /// keeps its URL without opening it.
     url: String,
     /// Temporary folder holding the Bash scripts.
     folder: Option<String>,
@@ -309,7 +311,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
         layout: template.layout.clone(),
         distribution: project.distribution.clone(),
         profile,
-        url: project.url.clone(),
+        url: project.url_to_open().to_owned(),
         launches,
         folder: None,
     };
@@ -397,7 +399,7 @@ fn prepare_ssh(
         layout: template.layout.clone(),
         distribution: project.distribution.clone(),
         profile,
-        url: project.url.clone(),
+        url: project.url_to_open().to_owned(),
         launches: panes
             .iter()
             .map(|p| {
@@ -589,6 +591,7 @@ mod tests {
                 distribution: String::new(),
                 terminal_profile: String::new(),
                 url: String::new(),
+                url_disabled: false,
                 template_id: "t".into(),
                 overrides: BTreeMap::new(),
                 launch_all: false,

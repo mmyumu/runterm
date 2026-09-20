@@ -511,16 +511,43 @@ h1 {
   gap: 18px 20px;
   padding: 22px;
 }
-.config-fields label {
+.config-fields label,
+.config-fields .field {
   min-width: 0;
 }
-label {
+label,
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 10px;
   color: #637258;
   font-weight: 500;
+}
+/* Caption of a field carrying a switch, on the line above its input. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  color: #859177;
+  font-weight: 400;
+  cursor: pointer;
+}
+.field-check input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  accent-color: #6a8f57;
+  cursor: pointer;
 }
 input,
 select {
