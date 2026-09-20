@@ -44,6 +44,24 @@ import {
   validateConfig,
 } from "./model";
 
+/** Sidebar width, in pixels: kept in this webview, not in the configuration. */
+const widthKey = "runterm-sidebar-width";
+const minWidth = 170;
+const maxWidth = 520;
+/** Never wider than half the window, so the editor keeps room. */
+const clampWidth = (width: number) =>
+  Math.round(
+    Math.max(minWidth, Math.min(maxWidth, window.innerWidth / 2, width)),
+  );
+const storedWidth = () => {
+  const saved = Number(localStorage.getItem(widthKey));
+  return saved >= minWidth && saved <= maxWidth ? saved : null;
+};
+const storeWidth = (width: number | null) =>
+  width === null
+    ? localStorage.removeItem(widthKey)
+    : localStorage.setItem(widthKey, String(width));
+
 function shellLabel(items: Pane[], host = "") {
   const powershell = items.filter((p) => p.shell === "powershell").length;
   const bash = host ? `BASH / SSH ${host}` : "BASH / WSL";
@@ -231,7 +249,10 @@ export default function App() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   // undefined: not installing; null: downloading with unknown size.
   const [updateProgress, setUpdateProgress] = useState<number | null>();
+  // null: the width from the stylesheet, which follows the window size.
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(storedWidth);
   const alive = useRef(true);
+  const sidebar = useRef<HTMLElement>(null);
   const message = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // The action buttons sit at the bottom of long forms: bring feedback into view.
@@ -616,10 +637,44 @@ export default function App() {
         p.id === id ? { ...p, launchAll: !p.launchAll || undefined } : p,
       ),
     }));
+  // The sidebar starts at the left edge, so the pointer position is the width.
+  const startSidebarDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    let width = sidebar.current?.offsetWidth ?? 0;
+    const move = (e: PointerEvent) => {
+      width = clampWidth(e.clientX);
+      setSidebarWidth(width);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      storeWidth(width);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    event.preventDefault();
+  };
+  const stepSidebar = (step: number) => {
+    const width = clampWidth((sidebar.current?.offsetWidth ?? 0) + step);
+    setSidebarWidth(width);
+    storeWidth(width);
+  };
+  const resetSidebar = () => {
+    setSidebarWidth(null);
+    storeWidth(null);
+  };
   const custom = project && selectedPane && project.overrides[selectedPane.id];
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div
+      className="app-shell"
+      style={
+        sidebarWidth
+          ? ({ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <aside className="sidebar" ref={sidebar}>
         <div className="brand">
           <span className="brand-icon">
             <Terminal size={22} />
@@ -814,6 +869,24 @@ export default function App() {
             </button>
           )}
         </div>
+        <div
+          className="sidebar-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Largeur de la barre latérale"
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          aria-valuenow={sidebarWidth ?? undefined}
+          tabIndex={0}
+          title="Glisser pour redimensionner (← / → au clavier, double-clic pour la largeur par défaut)"
+          onPointerDown={startSidebarDrag}
+          onDoubleClick={resetSidebar}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            stepSidebar(e.key === "ArrowLeft" ? -16 : 16);
+          }}
+        />
       </aside>
       <main className="main">
         <header className="topbar">

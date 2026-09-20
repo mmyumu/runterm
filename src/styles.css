@@ -50,11 +50,13 @@ a {
   color: inherit;
 }
 .app-shell {
+  /* Set inline once the sidebar has been resized by hand. */
+  --sidebar-width: 232px;
   min-height: 100vh;
   display: flex;
 }
 .sidebar {
-  width: 232px;
+  width: var(--sidebar-width);
   flex-shrink: 0;
   background: #101c1a;
   color: #becac5;
@@ -63,6 +65,24 @@ a {
   flex-direction: column;
   position: fixed;
   inset: 0 auto 0 0;
+}
+.sidebar-resizer {
+  position: absolute;
+  inset: 0 -3px 0 auto;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after {
+  background: #43a58b;
 }
 .brand {
   display: flex;
@@ -297,7 +317,7 @@ nav {
   background: #d69a40;
 }
 .main {
-  margin-left: 232px;
+  margin-left: var(--sidebar-width);
   min-width: 0;
   flex: 1;
 }
@@ -1071,13 +1091,12 @@ textarea {
   }
 }
 @media (max-width: 1100px) {
+  .app-shell {
+    --sidebar-width: 200px;
+  }
   .sidebar {
-    width: 200px;
     padding-left: 12px;
     padding-right: 12px;
-  }
-  .main {
-    margin-left: 200px;
   }
   .page-content {
     padding: 27px 23px;
@@ -1111,11 +1130,8 @@ textarea {
   }
 }
 @media (max-width: 800px) {
-  .sidebar {
-    width: 170px;
-  }
-  .main {
-    margin-left: 170px;
+  .app-shell {
+    --sidebar-width: 170px;
   }
   .brand {
     font-size: 22px;

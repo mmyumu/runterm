@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import { api } from "./api";
@@ -313,4 +319,36 @@ it("choisit les projets lancés par « Tout lancer » et s’en souvient", async
       })
     ).getAttribute("aria-pressed"),
   ).toBe("true");
+});
+
+it("redimensionne la barre latérale et se souvient de la largeur", async () => {
+  const width = () =>
+    document
+      .querySelector<HTMLElement>(".app-shell")!
+      .style.getPropertyValue("--sidebar-width");
+  const handle = () =>
+    screen.findByRole("separator", { name: "Largeur de la barre latérale" });
+  render(<App />);
+  fireEvent.pointerDown(await handle());
+  // jsdom has no PointerEvent, so the coordinates travel on a MouseEvent.
+  fireEvent(window, new MouseEvent("pointermove", { clientX: 300 }));
+  fireEvent.pointerUp(window);
+  expect(width()).toBe("300px");
+  // Beyond the limits the handle stops rather than squeezing the editor.
+  fireEvent.pointerDown(await handle());
+  fireEvent(window, new MouseEvent("pointermove", { clientX: 20 }));
+  fireEvent.pointerUp(window);
+  expect(width()).toBe("170px");
+  fireEvent.pointerDown(await handle());
+  fireEvent(window, new MouseEvent("pointermove", { clientX: 300 }));
+  fireEvent.pointerUp(window);
+  expect(localStorage.getItem("runterm-sidebar-width")).toBe("300");
+  cleanup();
+  render(<App />);
+  await handle();
+  expect(width()).toBe("300px");
+  // Back to the width from the stylesheet.
+  fireEvent.doubleClick(await handle());
+  expect(width()).toBe("");
+  expect(localStorage.getItem("runterm-sidebar-width")).toBeNull();
 });
