@@ -73,6 +73,10 @@ pub struct Project {
     /// Empty: the profile named after the distribution.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub terminal_profile: String,
+    /// Page opened in the default browser when the project is launched, for a
+    /// web application served by one of its panes. Empty: none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
     pub template_id: String,
     pub overrides: BTreeMap<String, Override>,
     /// Started by the "launch all" buttons.
@@ -175,6 +179,26 @@ fn valid_host(value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+/// Kept to an absolute `http(s)` address, with no character a browser could
+/// read as an option and no space, so the URL stays one argument.
+pub fn valid_url(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Ok(());
+    }
+    let rest = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .ok_or("L’URL du projet doit commencer par http:// ou https://.")?;
+    if rest.is_empty()
+        || value.len() > 2000
+        || value
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || "\"'<>|".contains(c))
+    {
+        return Err("URL du projet invalide (espace, guillemet ou caractère de contrôle).".into());
+    }
+    Ok(())
+}
 fn valid_directory(value: &str) -> Result<(), String> {
     if value.starts_with('/') || value.contains('\0') || value.split('/').any(|s| s == "..") {
         return Err("Le dossier du panneau doit être relatif à la racine, sans « .. ».".into());
@@ -217,6 +241,7 @@ impl Config {
                 return Err("La racine doit être un chemin Linux absolu.".into());
             }
             valid_host(&project.host)?;
+            valid_url(&project.url)?;
             if project.distribution.contains(['\0', '\r', '\n', ';']) {
                 return Err("Distribution invalide.".into());
             }
@@ -456,6 +481,44 @@ pub fn ssh_command(host: &str, script: &str) -> Result<String, String> {
         shell_quote(host),
         shell_quote(&remote)
     ))
+}
+
+/// Value of the single entry printed by `reg.exe query … /v <name>` (or `/ve`):
+/// a `    <name>    REG_SZ    <value>` line. The entry name is localized
+/// (`(Default)`, `(Par défaut)`), its type is not, so the type is the anchor.
+pub fn reg_string(output: &str) -> Option<String> {
+    let value = output.lines().find_map(|line| {
+        ["REG_EXPAND_SZ", "REG_SZ"]
+            .iter()
+            .find_map(|kind| line.split(kind).nth(1))
+    })?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+/// Program of a registry `shell\open\command`, e.g. `"C:\…\chrome.exe"
+/// --single-argument %1` or `C:\…\firefox.exe -osint -url "%1"`. RunTerm
+/// passes the URLs to that program itself instead of filling the command in:
+/// browsers open one tab per URL argument, in a single window. `None` when
+/// the value names no executable, for instance a Store application.
+pub fn browser_executable(command: &str) -> Option<String> {
+    let command = command.trim();
+    let program = match command.strip_prefix('"') {
+        Some(rest) => rest.split('"').next()?,
+        // Unquoted; such a path may still contain spaces, so it ends at `.exe`.
+        None => {
+            let end = command
+                .as_bytes()
+                .windows(4)
+                .position(|w| w.eq_ignore_ascii_case(b".exe"))?
+                + 4;
+            &command[..end]
+        }
+    };
+    let usable = program.len() > 4
+        && program.as_bytes()[program.len() - 4..].eq_ignore_ascii_case(b".exe")
+        && !program.contains(['%', '\0', '\r', '\n']);
+    usable.then(|| program.to_owned())
 }
 
 /// How Windows Terminal starts one pane.

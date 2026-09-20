@@ -113,6 +113,31 @@ describe("layouts partagés", () => {
     expect(withHost("a b")).not.toBeNull();
     expect(withHost("a;b")).not.toBeNull();
   });
+  it("valide l’URL optionnelle du projet", () => {
+    const config = initialConfig();
+    const withUrl = (url?: string) =>
+      validateConfig({
+        ...config,
+        projects: [
+          {
+            id: "p",
+            name: "P",
+            distribution: "",
+            root: "/p",
+            url,
+            templateId: config.templates[0].id,
+            overrides: {},
+          },
+        ],
+      });
+    expect(withUrl(undefined)).toBeNull();
+    expect(withUrl("http://localhost:5173")).toBeNull();
+    expect(withUrl("https://app.example.com/d?tab=1#top")).toBeNull();
+    expect(withUrl("localhost:5173")).not.toBeNull();
+    expect(withUrl("file:///C:/page.html")).not.toBeNull();
+    expect(withUrl("http://")).not.toBeNull();
+    expect(withUrl("http://a b")).not.toBeNull();
+  });
   it("valide la racine des workspaces optionnelle", () => {
     const config = initialConfig();
     expect(validateConfig({ ...config, workspaceRoot: "" })).toBeNull();

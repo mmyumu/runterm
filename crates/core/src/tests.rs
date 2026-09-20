@@ -24,6 +24,7 @@ fn config() -> Config {
             host: String::new(),
             distribution: "Ubuntu".into(),
             terminal_profile: String::new(),
+            url: String::new(),
             template_id: "t".into(),
             overrides: BTreeMap::new(),
             launch_all: false,
@@ -271,6 +272,62 @@ fn terminal_profile_is_optional_and_validated() {
     for bad in ["a;b", "a\nb", "--help"] {
         c.projects[0].terminal_profile = bad.into();
         assert!(c.validate().is_err(), "{bad}");
+    }
+}
+#[test]
+fn url_is_optional_and_validated() {
+    let mut c = config();
+    let json = serde_json::to_value(&c).unwrap();
+    assert!(json["projects"][0].get("url").is_none());
+    for good in [
+        "http://localhost:5173",
+        "https://app.example.com/dashboard?tab=1#top",
+        "http://127.0.0.1:8000/docs",
+    ] {
+        c.projects[0].url = good.into();
+        assert!(c.validate().is_ok(), "{good}");
+    }
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["projects"][0]["url"], "http://127.0.0.1:8000/docs");
+    assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
+    for bad in [
+        "localhost:5173",
+        "file:///C:/page.html",
+        "http://",
+        "http://a b",
+        "http://a\nb",
+        "--no-sandbox",
+        "http://a\u{0}b",
+    ] {
+        c.projects[0].url = bad.into();
+        assert!(c.validate().is_err(), "{bad:?}");
+    }
+}
+#[test]
+fn default_browser_is_read_from_its_registry_command() {
+    let chrome = "    (Default)    REG_SZ    \"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --single-argument %1";
+    assert_eq!(
+        reg_string(&format!(
+            "\r\nHKEY_CLASSES_ROOT\\ChromeHTML\\shell\\open\\command\r\n{chrome}\r\n"
+        ))
+        .as_deref()
+        .and_then(browser_executable),
+        Some("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".into())
+    );
+    // A localized entry name, an expandable value and an unquoted path with spaces.
+    let firefox = "    (Par défaut)    REG_EXPAND_SZ    C:\\Program Files\\Mozilla Firefox\\firefox.exe -osint -url \"%1\"";
+    assert_eq!(
+        reg_string(firefox).as_deref().and_then(browser_executable),
+        Some("C:\\Program Files\\Mozilla Firefox\\firefox.exe".into())
+    );
+    assert_eq!(
+        reg_string("    ProgId    REG_SZ    ChromeHTML").as_deref(),
+        Some("ChromeHTML")
+    );
+    assert_eq!(reg_string("ERROR: cannot find the key"), None);
+    // A Store application, or anything else RunTerm cannot pass URLs to.
+    for bad in ["", "\"%1\"", "AppX4hxtad77fbk3jkkeerkrm0ze94wjf3s9"] {
+        assert_eq!(browser_executable(bad), None, "{bad:?}");
     }
 }
 #[test]

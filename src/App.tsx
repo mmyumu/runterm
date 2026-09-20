@@ -1079,6 +1079,18 @@ export default function App() {
                         />
                       </label>
                       <label>
+                        URL à ouvrir
+                        <input
+                          className="mono"
+                          placeholder="Aucune : pas de navigateur"
+                          title="Page ouverte dans le navigateur par défaut au lancement du projet, par exemple http://localhost:5173. Plusieurs projets lancés ensemble ouvrent un onglet chacun."
+                          value={project.url ?? ""}
+                          onChange={(e) =>
+                            editProject({ url: e.target.value || undefined })
+                          }
+                        />
+                      </label>
+                      <label>
                         Modèle de layout
                         <select
                           value={project.templateId}

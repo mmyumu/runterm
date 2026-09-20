@@ -31,6 +31,8 @@ export type Project = {
   distribution: string;
   /** Windows Terminal profile (name or GUID); absent: named after the distribution. */
   terminalProfile?: string;
+  /** Page opened in the default browser at launch (http(s)); absent: none. */
+  url?: string;
   templateId: string;
   overrides: Record<string, PaneOverride>;
   /** Started by the "launch all" buttons; absent: not started. */
@@ -170,6 +172,12 @@ export function validateConfig(config: Config): string | null {
     const profile = project.terminalProfile ?? "";
     if (/[\0\r\n;]/.test(profile) || profile.trimStart().startsWith("-"))
       return "Profil Windows Terminal invalide (point-virgule, retour à la ligne ou tiret initial).";
+    const url = project.url ?? "";
+    if (
+      url &&
+      (url.length > 2000 || !/^https?:\/\/[^\s"'<>|\p{C}]+$/u.test(url))
+    )
+      return "L’URL du projet doit commencer par http:// ou https://, sans espace.";
     if (!config.templates.some((t) => t.id === project.templateId))
       return "Choisissez un modèle existant.";
   }

@@ -104,6 +104,66 @@ fn execute(program: &str, args: &[String], input: Option<&[u8]>) -> Result<Strin
     }
     Ok(stdout)
 }
+/// Starts a program without waiting for it: unlike [`execute`], the child
+/// keeps running, which a browser started from here does.
+fn start(program: &str, args: &[String]) -> Result<(), String> {
+    Command::new(program)
+        .args(args)
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("Impossible de lancer {program} : {e}"))
+}
+/// Executable of the browser handling `https`, read from the user's file
+/// association. `None` when the association is missing or names no program.
+fn default_browser() -> Option<String> {
+    let query = |key: &str, value: &[&str]| {
+        let mut args = vec!["query".to_string(), key.to_string()];
+        args.extend(value.iter().map(|s| s.to_string()));
+        execute("reg.exe", &args, None)
+            .ok()
+            .as_deref()
+            .and_then(core::reg_string)
+    };
+    let prog_id = query(
+        r"HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+        &["/v", "ProgId"],
+    )?;
+    // Interpolated into a registry path, so kept to the shape of a ProgId.
+    if prog_id.is_empty()
+        || !prog_id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+    {
+        return None;
+    }
+    let command = query(&format!(r"HKCR\{prog_id}\shell\open\command"), &["/ve"])?;
+    core::browser_executable(&command)
+}
+/// Opens the project pages in the default browser. One browser process
+/// receives them all, so they open as tabs of a single window; browsers
+/// forward them to their already running instance.
+fn open_urls(urls: &[String]) -> Result<(), String> {
+    if urls.is_empty() {
+        return Ok(());
+    }
+    for url in urls {
+        core::valid_url(url)?;
+    }
+    match default_browser() {
+        Some(browser) => start(&browser, urls),
+        // No usable association: Windows opens each URL with its handler.
+        None => urls.iter().try_for_each(|url| {
+            start(
+                "rundll32.exe",
+                &["url.dll,FileProtocolHandler".into(), url.clone()],
+            )
+        }),
+    }
+}
 fn wsl(distribution: &str, command: &[&str], input: Option<&[u8]>) -> Result<String, String> {
     let mut args = Vec::new();
     if !distribution.is_empty() {
@@ -170,6 +230,8 @@ struct Prepared {
     distribution: String,
     profile: String,
     launches: BTreeMap<String, core::PaneLaunch>,
+    /// Page to open in the default browser. Empty: none.
+    url: String,
     /// Temporary folder holding the Bash scripts.
     folder: Option<String>,
 }
@@ -247,6 +309,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
         layout: template.layout.clone(),
         distribution: project.distribution.clone(),
         profile,
+        url: project.url.clone(),
         launches,
         folder: None,
     };
@@ -334,6 +397,7 @@ fn prepare_ssh(
         layout: template.layout.clone(),
         distribution: project.distribution.clone(),
         profile,
+        url: project.url.clone(),
         launches: panes
             .iter()
             .map(|p| {
@@ -383,6 +447,19 @@ fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<
                 });
             }
         }
+    }
+    // Before Windows Terminal, so its new window ends up in front. A browser
+    // that cannot be started stops the launch, like any other failure: the
+    // scripts are removed and nothing is opened.
+    let mut urls: Vec<String> = Vec::new();
+    for project in &prepared {
+        if !project.url.is_empty() && !urls.contains(&project.url) {
+            urls.push(project.url.clone());
+        }
+    }
+    if let Err(e) = open_urls(&urls) {
+        prepared.iter().for_each(Prepared::discard);
+        return Err(e);
     }
     // wt returns after dispatch; application processes are owned by Windows Terminal.
     match mode {
@@ -511,6 +588,7 @@ mod tests {
                 host: String::new(),
                 distribution: String::new(),
                 terminal_profile: String::new(),
+                url: String::new(),
                 template_id: "t".into(),
                 overrides: BTreeMap::new(),
                 launch_all: false,

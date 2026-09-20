@@ -20,6 +20,8 @@ it("crée et sauvegarde un projet avec une commande personnalisée", async () =>
   const root = screen.getByLabelText("Dossier racine WSL");
   await user.clear(root);
   await user.type(root, "/home/me/workspaces/betalab");
+  const url = screen.getByLabelText("URL à ouvrir");
+  await user.type(url, "http://localhost:5173");
   // With a project open, creating one stays on the sidebar button.
   expect(screen.queryByRole("button", { name: "Nouveau projet" })).toBeNull();
   expect(screen.getByRole("button", { name: "Créer un projet" })).toBeTruthy();
@@ -35,6 +37,7 @@ it("crée et sauvegarde un projet avec une commande personnalisée", async () =>
   );
   const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
   expect(saved.projects[0].root).toBe("/home/me/workspaces/betalab");
+  expect(saved.projects[0].url).toBe("http://localhost:5173");
   expect(Object.values(saved.projects[0].overrides)).toEqual([
     { commands: ["uv run uvicorn app.main:app --reload"] },
   ]);
