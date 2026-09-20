@@ -46,6 +46,10 @@ import {
 
 /** Sidebar width, in pixels: kept in this webview, not in the configuration. */
 const widthKey = "runterm-sidebar-width";
+// How long a success message floats before it fades out on its own.
+const noticeDelay = 5000;
+/** The fade-out of `.toast.leaving` in styles.css: keep both in step. */
+const noticeFade = 130;
 const minWidth = 170;
 const maxWidth = 520;
 /** Never wider than half the window, so the editor keeps room. */
@@ -253,11 +257,26 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(storedWidth);
   const alive = useRef(true);
   const sidebar = useRef<HTMLElement>(null);
-  const message = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    // The action buttons sit at the bottom of long forms: bring feedback into view.
-    message.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [error, notice]);
+    // Successes expire on their own; errors stay until they are dismissed.
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), noticeDelay);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const feedback = error || notice;
+  // A copy of the message, kept mounted while it fades out.
+  const [shown, setShown] = useState({ text: "", error: false });
+  useEffect(() => {
+    if (feedback) {
+      setShown({ text: feedback, error: Boolean(error) });
+      return;
+    }
+    const timer = setTimeout(
+      () => setShown((last) => (last.text ? { text: "", error: false } : last)),
+      noticeFade,
+    );
+    return () => clearTimeout(timer);
+  }, [feedback, error]);
   useEffect(() => {
     alive.current = true;
     api
@@ -945,6 +964,30 @@ export default function App() {
           </div>
         )}
         <div className="page-content">
+          {/* Sticky and without height: the message floats over the page
+              instead of reflowing it every time it comes and goes. */}
+          <div className="toast-region">
+            {shown.text && (
+              <div
+                role={shown.error ? "alert" : "status"}
+                className={`toast ${shown.error ? "error" : "success"}${
+                  feedback ? "" : " leaving"
+                }`}
+              >
+                {shown.text}
+                <button
+                  className="icon-button"
+                  aria-label="Fermer le message"
+                  onClick={() => {
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="page-heading">
             <div>
               <div className="eyebrow">CONFIGURER. LANCER. CRÉER.</div>
@@ -968,25 +1011,6 @@ export default function App() {
               </button>
             )}
           </div>
-          {(error || notice) && (
-            <div
-              ref={message}
-              role={error ? "alert" : "status"}
-              className={`message ${error ? "error" : "success"}`}
-            >
-              {error || notice}
-              <button
-                className="icon-button"
-                aria-label="Fermer le message"
-                onClick={() => {
-                  setError("");
-                  setNotice("");
-                }}
-              >
-                <X size={15} />
-              </button>
-            </div>
-          )}
           {!template ? (
             <section className="empty-state">
               <span className="empty-icon">

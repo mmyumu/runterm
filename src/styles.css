@@ -921,28 +921,65 @@ textarea {
   color: #be5955;
   background: #f9eeeb;
 }
-.message {
+.toast-region {
+  /* No height: the toast overflows it and never moves the page. */
+  position: sticky;
+  top: 14px;
+  height: 0;
+  z-index: 9;
+  display: flex;
+  justify-content: flex-end;
+}
+.toast {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 15px;
+  gap: 12px;
+  max-width: min(480px, 100%);
+  padding: 13px 18px;
   border: 1px solid;
-  border-radius: 6px;
-  margin-bottom: 20px;
-  font-size: 11px;
-  line-height: 1.6;
+  border-radius: 7px;
+  font-size: 12.5px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
+  box-shadow: 0 12px 32px #12251126;
+  animation: toast-in 160ms ease-out;
 }
-.message.error {
+.toast .icon-button {
+  flex-shrink: 0;
+}
+.toast.error {
   background: #fff3ee;
   color: #a65c45;
   border-color: #edcdc0;
 }
-.message.success {
+.toast.success {
   background: #edf5e8;
   color: #55734b;
   border-color: #d5e4c9;
+}
+.toast.leaving {
+  /* On its way out: no longer in the way of what it covers. */
+  animation: toast-out 130ms ease-in forwards;
+  pointer-events: none;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast.leaving {
+    animation: none;
+  }
 }
 .empty-state {
   min-height: 490px;
