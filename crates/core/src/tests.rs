@@ -26,6 +26,8 @@ fn config() -> Config {
             terminal_profile: String::new(),
             url: String::new(),
             url_disabled: false,
+            vscode: false,
+            vscode_folder: String::new(),
             template_id: "t".into(),
             overrides: BTreeMap::new(),
             launch_all: false,
@@ -318,6 +320,53 @@ fn a_disabled_url_is_kept_but_not_opened() {
     assert_eq!(c.projects[0].url_to_open(), "");
     let json = serde_json::to_value(&c).unwrap();
     assert_eq!(json["projects"][0]["urlDisabled"], true);
+    assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
+}
+#[test]
+fn vscode_opens_the_root_or_another_folder_remotely() {
+    let mut c = config();
+    assert_eq!(c.projects[0].vscode_uri("Ubuntu"), "");
+    let json = serde_json::to_value(&c).unwrap();
+    assert!(json["projects"][0].get("vscode").is_none());
+    assert!(json["projects"][0].get("vscodeFolder").is_none());
+    c.projects[0].vscode = true;
+    assert_eq!(
+        c.projects[0].vscode_uri("Ubuntu"),
+        "vscode-remote://wsl+Ubuntu/home/me/project"
+    );
+    for (folder, uri) in [
+        (".", "vscode-remote://wsl+Ubuntu/home/me/project"),
+        (
+            "frontend/",
+            "vscode-remote://wsl+Ubuntu/home/me/project/frontend",
+        ),
+        (
+            "/srv/other app",
+            "vscode-remote://wsl+Ubuntu/srv/other%20app",
+        ),
+        ("/", "vscode-remote://wsl+Ubuntu/"),
+        (
+            "été#1",
+            "vscode-remote://wsl+Ubuntu/home/me/project/%C3%A9t%C3%A9%231",
+        ),
+    ] {
+        c.projects[0].vscode_folder = folder.into();
+        assert!(c.validate().is_ok(), "{folder}");
+        assert_eq!(c.projects[0].vscode_uri("Ubuntu"), uri, "{folder}");
+    }
+    c.projects[0].vscode_folder = "back\nend".into();
+    assert!(c.validate().is_err());
+    // Over SSH, the host names the remote; `@` and `:` stay out of the authority syntax.
+    c.projects[0].vscode_folder = String::new();
+    c.projects[0].host = "me@dev:2222".into();
+    assert_eq!(
+        c.projects[0].vscode_uri("Ubuntu"),
+        "vscode-remote://ssh-remote+me%40dev%3A2222/home/me/project"
+    );
+    c.projects[0].vscode_folder = "api".into();
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["projects"][0]["vscode"], true);
+    assert_eq!(json["projects"][0]["vscodeFolder"], "api");
     assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
 }
 #[test]

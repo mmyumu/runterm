@@ -117,18 +117,19 @@ fn start(program: &str, args: &[String]) -> Result<(), String> {
         .map(drop)
         .map_err(|e| format!("Impossible de lancer {program} : {e}"))
 }
+/// String value of a registry entry: `/v <name>`, or `/ve` for the default one.
+fn reg_query(key: &str, value: &[&str]) -> Option<String> {
+    let mut args = vec!["query".to_string(), key.to_string()];
+    args.extend(value.iter().map(|s| s.to_string()));
+    execute("reg.exe", &args, None)
+        .ok()
+        .as_deref()
+        .and_then(core::reg_string)
+}
 /// Executable of the browser handling `https`, read from the user's file
 /// association. `None` when the association is missing or names no program.
 fn default_browser() -> Option<String> {
-    let query = |key: &str, value: &[&str]| {
-        let mut args = vec!["query".to_string(), key.to_string()];
-        args.extend(value.iter().map(|s| s.to_string()));
-        execute("reg.exe", &args, None)
-            .ok()
-            .as_deref()
-            .and_then(core::reg_string)
-    };
-    let prog_id = query(
+    let prog_id = reg_query(
         r"HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
         &["/v", "ProgId"],
     )?;
@@ -140,7 +141,7 @@ fn default_browser() -> Option<String> {
     {
         return None;
     }
-    let command = query(&format!(r"HKCR\{prog_id}\shell\open\command"), &["/ve"])?;
+    let command = reg_query(&format!(r"HKCR\{prog_id}\shell\open\command"), &["/ve"])?;
     core::browser_executable(&command)
 }
 /// Opens the project pages in the default browser. One browser process
@@ -164,6 +165,23 @@ fn open_urls(urls: &[String]) -> Result<(), String> {
             )
         }),
     }
+}
+/// `Code.exe`, read from the `vscode:` URL handler VS Code registers, or
+/// found next to the `bin\code.cmd` of the `PATH`. `code.cmd` itself is not
+/// run: it would go through `cmd.exe`.
+fn vscode_executable() -> Option<String> {
+    let registered = reg_query(r"HKCR\vscode\shell\open\command", &["/ve"])
+        .as_deref()
+        .and_then(core::browser_executable)
+        .filter(|path| std::path::Path::new(path).is_file());
+    registered.or_else(|| {
+        let cmd = execute("where.exe", &["code.cmd".into()], None).ok()?;
+        let code = PathBuf::from(cmd.lines().next()?.trim())
+            .parent()?
+            .parent()?
+            .join("Code.exe");
+        code.is_file().then(|| code.to_string_lossy().into_owned())
+    })
 }
 fn wsl(distribution: &str, command: &[&str], input: Option<&[u8]>) -> Result<String, String> {
     let mut args = Vec::new();
@@ -234,6 +252,8 @@ struct Prepared {
     /// Page to open in the default browser. Empty: none, or the project
     /// keeps its URL without opening it.
     url: String,
+    /// `--folder-uri` opened in VS Code. Empty: none.
+    vscode: String,
     /// Temporary folder holding the Bash scripts.
     folder: Option<String>,
 }
@@ -270,8 +290,9 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
     } else {
         project.terminal_profile.clone()
     };
+    let vscode = project.vscode_uri(distribution);
     if !project.host.is_empty() {
-        return prepare_ssh(project, template, &panes, profile);
+        return prepare_ssh(project, template, &panes, profile, vscode);
     }
     for pane in &panes {
         wsl(
@@ -312,6 +333,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
         distribution: project.distribution.clone(),
         profile,
         url: project.url_to_open().to_owned(),
+        vscode,
         launches,
         folder: None,
     };
@@ -388,6 +410,7 @@ fn prepare_ssh(
     template: &core::Template,
     panes: &[core::ResolvedPane],
     profile: String,
+    vscode: String,
 ) -> Result<Prepared, String> {
     if let Some(pane) = panes.iter().find(|p| p.shell == core::Shell::Powershell) {
         return Err(format!(
@@ -400,6 +423,7 @@ fn prepare_ssh(
         distribution: project.distribution.clone(),
         profile,
         url: project.url_to_open().to_owned(),
+        vscode,
         launches: panes
             .iter()
             .map(|p| {
@@ -451,15 +475,35 @@ fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<
         }
     }
     // Before Windows Terminal, so its new window ends up in front. A browser
-    // that cannot be started stops the launch, like any other failure: the
-    // scripts are removed and nothing is opened.
+    // or a VS Code that cannot be started stops the launch, like any other
+    // failure: the scripts are removed and nothing is opened.
     let mut urls: Vec<String> = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
     for project in &prepared {
         if !project.url.is_empty() && !urls.contains(&project.url) {
             urls.push(project.url.clone());
         }
+        if !project.vscode.is_empty() && !folders.contains(&project.vscode) {
+            folders.push(project.vscode.clone());
+        }
     }
-    if let Err(e) = open_urls(&urls) {
+    let opened = (|| {
+        // Looked up first, so a missing VS Code opens no browser either.
+        let code = if folders.is_empty() {
+            String::new()
+        } else {
+            vscode_executable().ok_or(
+                "Visual Studio Code est introuvable. Installez-le, ou décochez « Ouvrir VS Code ».",
+            )?
+        };
+        open_urls(&urls)?;
+        // One window per folder; a running VS Code receives them and focuses
+        // a window that already shows the folder.
+        folders
+            .iter()
+            .try_for_each(|folder| start(&code, &["--folder-uri".into(), folder.clone()]))
+    })();
+    if let Err(e) = opened {
         prepared.iter().for_each(Prepared::discard);
         return Err(e);
     }
@@ -592,6 +636,8 @@ mod tests {
                 terminal_profile: String::new(),
                 url: String::new(),
                 url_disabled: false,
+                vscode: false,
+                vscode_folder: String::new(),
                 template_id: "t".into(),
                 overrides: BTreeMap::new(),
                 launch_all: false,

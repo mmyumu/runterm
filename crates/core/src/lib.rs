@@ -81,6 +81,13 @@ pub struct Project {
     /// the browser is not wanted for a while.
     #[serde(default, skip_serializing_if = "is_false")]
     pub url_disabled: bool,
+    /// Opens the project in Visual Studio Code at launch, connected to WSL (or
+    /// to `host` over SSH) with its Remote extensions.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub vscode: bool,
+    /// Folder VS Code opens: relative to `root`, or absolute. Empty: `root`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vscode_folder: String,
     pub template_id: String,
     pub overrides: BTreeMap<String, Override>,
     /// Started by the "launch all" buttons.
@@ -98,6 +105,48 @@ impl Project {
             &self.url
         }
     }
+    /// `--folder-uri` value opening the project in VS Code, e.g.
+    /// `vscode-remote://wsl+Ubuntu/home/me/project`, or
+    /// `vscode-remote://ssh-remote+dev/srv/app` with a `host`. `distribution`
+    /// is the one the panes use, resolved when the project names none. Empty
+    /// when the project does not open VS Code.
+    pub fn vscode_uri(&self, distribution: &str) -> String {
+        if !self.vscode {
+            return String::new();
+        }
+        let folder = match self.vscode_folder.as_str() {
+            "" | "." | "./" => self.root.clone(),
+            absolute if absolute.starts_with('/') => absolute.to_owned(),
+            relative => format!("{}/{relative}", self.root.trim_end_matches('/')),
+        };
+        let folder = match folder.trim_end_matches('/') {
+            "" => "/",
+            trimmed => trimmed,
+        };
+        let authority = if self.host.is_empty() {
+            format!("wsl+{}", percent_encode(distribution, ""))
+        } else {
+            format!("ssh-remote+{}", percent_encode(&self.host, ""))
+        };
+        format!("vscode-remote://{authority}{}", percent_encode(folder, "/"))
+    }
+}
+/// Percent-encodes every byte of `value` but the URI unreserved characters
+/// and `keep`, so VS Code reads it back unchanged (`@` or `:` in a host would
+/// otherwise split the authority).
+fn percent_encode(value: &str, keep: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || b"-._~".contains(&byte)
+            || keep.as_bytes().contains(&byte)
+        {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 fn is_false(value: &bool) -> bool {
     !value
@@ -258,6 +307,9 @@ impl Config {
             }
             valid_host(&project.host)?;
             valid_url(&project.url)?;
+            if project.vscode_folder.chars().any(char::is_control) {
+                return Err("Dossier VS Code invalide (caractère de contrôle).".into());
+            }
             if project.distribution.contains(['\0', '\r', '\n', ';']) {
                 return Err("Distribution invalide.".into());
             }
@@ -512,7 +564,8 @@ pub fn reg_string(output: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
-/// Program of a registry `shell\open\command`, e.g. `"C:\…\chrome.exe"
+/// Program of a registry `shell\open\command` (a browser's, or the `vscode:`
+/// handler naming `Code.exe`), e.g. `"C:\…\chrome.exe"
 /// --single-argument %1` or `C:\…\firefox.exe -osint -url "%1"`. RunTerm
 /// passes the URLs to that program itself instead of filling the command in:
 /// browsers open one tab per URL argument, in a single window. `None` when

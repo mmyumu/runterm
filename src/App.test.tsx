@@ -28,6 +28,8 @@ it("crée et sauvegarde un projet avec une commande personnalisée", async () =>
   await user.type(root, "/home/me/workspaces/betalab");
   const url = screen.getByLabelText("URL à ouvrir");
   await user.type(url, "http://localhost:5173");
+  await user.click(screen.getByLabelText("Ouvrir VS Code"));
+  await user.type(screen.getByLabelText("Dossier VS Code"), "frontend");
   // With a project open, creating one stays on the sidebar button.
   expect(screen.queryByRole("button", { name: "Nouveau projet" })).toBeNull();
   expect(screen.getByRole("button", { name: "Créer un projet" })).toBeTruthy();
@@ -44,6 +46,8 @@ it("crée et sauvegarde un projet avec une commande personnalisée", async () =>
   const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
   expect(saved.projects[0].root).toBe("/home/me/workspaces/betalab");
   expect(saved.projects[0].url).toBe("http://localhost:5173");
+  expect(saved.projects[0].vscode).toBe(true);
+  expect(saved.projects[0].vscodeFolder).toBe("frontend");
   expect(Object.values(saved.projects[0].overrides)).toEqual([
     { commands: ["uv run uvicorn app.main:app --reload"] },
   ]);

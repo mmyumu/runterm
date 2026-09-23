@@ -142,6 +142,29 @@ describe("layouts partagés", () => {
     expect(withUrl("http://localhost:5173", true)).toBeNull();
     expect(withUrl("http://a b", true)).not.toBeNull();
   });
+  it("valide le dossier VS Code optionnel", () => {
+    const config = initialConfig();
+    const withFolder = (vscodeFolder?: string) =>
+      validateConfig({
+        ...config,
+        projects: [
+          {
+            id: "p",
+            name: "P",
+            distribution: "",
+            root: "/p",
+            vscode: true,
+            vscodeFolder,
+            templateId: config.templates[0].id,
+            overrides: {},
+          },
+        ],
+      });
+    expect(withFolder(undefined)).toBeNull();
+    expect(withFolder("frontend")).toBeNull();
+    expect(withFolder("/srv/autre projet")).toBeNull();
+    expect(withFolder("a\nb")).not.toBeNull();
+  });
   it("valide la racine des workspaces optionnelle", () => {
     const config = initialConfig();
     expect(validateConfig({ ...config, workspaceRoot: "" })).toBeNull();

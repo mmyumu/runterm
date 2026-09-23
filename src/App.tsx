@@ -1205,6 +1205,42 @@ export default function App() {
                           }
                         />
                       </div>
+                      <div className="field">
+                        <div className="field-head">
+                          <label htmlFor="project-vscode">
+                            Dossier VS Code
+                          </label>
+                          <label className="field-check">
+                            <input
+                              type="checkbox"
+                              title={
+                                project.host
+                                  ? "Ouvre VS Code connecté à l’hôte avec l’extension Remote - SSH (client ssh et ~/.ssh/config de Windows)."
+                                  : "Ouvre VS Code connecté à la distribution avec l’extension WSL."
+                              }
+                              checked={!!project.vscode}
+                              onChange={(e) =>
+                                editProject({
+                                  vscode: e.target.checked || undefined,
+                                })
+                              }
+                            />
+                            Ouvrir VS Code
+                          </label>
+                        </div>
+                        <input
+                          id="project-vscode"
+                          className="mono"
+                          placeholder="Racine du projet"
+                          title="Dossier ouvert dans VS Code au lancement : relatif à la racine du projet, ou chemin absolu. Vide : la racine."
+                          value={project.vscodeFolder ?? ""}
+                          onChange={(e) =>
+                            editProject({
+                              vscodeFolder: e.target.value || undefined,
+                            })
+                          }
+                        />
+                      </div>
                       <label>
                         Modèle de layout
                         <select

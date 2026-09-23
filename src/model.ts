@@ -35,6 +35,10 @@ export type Project = {
   url?: string;
   /** Keeps `url` without opening it at launch; absent: the URL opens. */
   urlDisabled?: boolean;
+  /** Opens the project in VS Code at launch, remotely in WSL (or on `host` over SSH); absent: no. */
+  vscode?: boolean;
+  /** Folder VS Code opens: relative to `root`, or absolute; absent: `root`. */
+  vscodeFolder?: string;
   templateId: string;
   overrides: Record<string, PaneOverride>;
   /** Started by the "launch all" buttons; absent: not started. */
@@ -180,6 +184,8 @@ export function validateConfig(config: Config): string | null {
       (url.length > 2000 || !/^https?:\/\/[^\s"'<>|\p{C}]+$/u.test(url))
     )
       return "L’URL du projet doit commencer par http:// ou https://, sans espace.";
+    if (/\p{Cc}/u.test(project.vscodeFolder ?? ""))
+      return "Dossier VS Code invalide (caractère de contrôle).";
     if (!config.templates.some((t) => t.id === project.templateId))
       return "Choisissez un modèle existant.";
   }
