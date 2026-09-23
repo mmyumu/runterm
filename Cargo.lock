@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "runterm"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "runterm-core",
  "serde",
@@ -2689,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "runterm-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde",
  "serde_json",
