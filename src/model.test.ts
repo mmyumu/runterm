@@ -4,13 +4,15 @@ import {
   effectivePane,
   initialConfig,
   joinPath,
-  migrateLaunchAll,
+  launchWindows,
+  migrateConfig,
   moveItem,
   newPane,
   panes,
   removePane,
   updateNode,
   validateConfig,
+  type Config,
   type Layout,
   type Project,
 } from "./model";
@@ -204,15 +206,26 @@ describe("groupes de lancement", () => {
     return { ...config, projects: [project("a", true), project("b", false)] };
   };
   it("reprend l’ancienne sélection « Tout lancer » dans un groupe", () => {
-    const migrated = migrateLaunchAll(withProjects());
+    const migrated = migrateConfig(withProjects());
     expect(migrated.launchGroups).toEqual([
-      { id: expect.any(String), name: "Principal", projectIds: ["a"] },
+      { id: expect.any(String), name: "Principal", windows: { a: 1 } },
     ]);
     expect(migrated.projects.some((p) => "launchAll" in p)).toBe(false);
-    expect(migrateLaunchAll(migrated)).toBe(migrated);
+    expect(migrateConfig(migrated)).toBe(migrated);
+  });
+  it("place en fenêtre 1 la sélection des premiers groupes", () => {
+    const config = {
+      ...withProjects(),
+      launchGroups: [{ id: "g", name: "Perso", projectIds: ["a", "b"] }],
+    } as unknown as Config;
+    const migrated = migrateConfig(config);
+    expect(migrated.launchGroups).toEqual([
+      { id: "g", name: "Perso", windows: { a: 1, b: 1 } },
+    ]);
+    expect(validateConfig(migrated)).toBeNull();
   });
   it("refuse un groupe sans nom ou vers un projet absent", () => {
-    const config = migrateLaunchAll(withProjects());
+    const config = migrateConfig(withProjects());
     const group = config.launchGroups![0];
     expect(validateConfig(config)).toBeNull();
     expect(
@@ -221,8 +234,25 @@ describe("groupes de lancement", () => {
     expect(
       validateConfig({
         ...config,
-        launchGroups: [{ ...group, projectIds: ["x"] }],
+        launchGroups: [{ ...group, windows: { x: 1 } }],
       }),
     ).toContain("projet absent");
+    for (const window of [0, 5, 1.5])
+      expect(
+        validateConfig({
+          ...config,
+          launchGroups: [{ ...group, windows: { a: window } }],
+        }),
+      ).toContain("de 1 à 4");
+  });
+  it("ouvre les fenêtres par numéro, les onglets dans l’ordre de la liste", () => {
+    const config = withProjects();
+    const group = { id: "g", name: "Boulot", windows: { b: 3, a: 3 } };
+    expect(launchWindows(config, group)).toEqual([["a", "b"]]);
+    expect(
+      launchWindows(config, { ...group, windows: { b: 1, a: 4 } }),
+    ).toEqual([["b"], ["a"]]);
+    expect(launchWindows(config, { ...group, windows: {} })).toEqual([]);
+    expect(launchWindows(config)).toEqual([]);
   });
 });

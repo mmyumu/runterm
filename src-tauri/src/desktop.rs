@@ -439,19 +439,22 @@ fn prepare_ssh(
     core::tabs_args(&[prepared.tab()])?;
     Ok(prepared)
 }
-#[derive(Clone, Copy, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum LaunchMode {
-    /// One window with a tab per project.
-    Tabs,
-    /// One window per project.
-    Windows,
-}
 /// Prepares every project before opening anything: one failure starts none.
-fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<(), String> {
+/// Each entry of `windows` opens one Windows Terminal window with a tab per
+/// project, in order.
+fn launch(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
     config.validate()?;
+    let windows: Vec<Vec<String>> = windows.into_iter().filter(|w| !w.is_empty()).collect();
+    let project_ids: Vec<&String> = windows.iter().flatten().collect();
     if project_ids.is_empty() {
         return Err("Aucun projet à lancer.".into());
+    }
+    if project_ids
+        .iter()
+        .enumerate()
+        .any(|(index, id)| project_ids[..index].contains(id))
+    {
+        return Err("Un projet ne peut être lancé qu’une fois.".into());
     }
     execute("where.exe", &["wt.exe".into()], None).map_err(|_| {
         "Windows Terminal est introuvable. Installez-le et activez son alias wt.exe.".to_string()
@@ -460,26 +463,44 @@ fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<
     if available.is_empty() {
         return Err("Aucune distribution WSL installée.".into());
     }
-    let mut prepared: Vec<Prepared> = Vec::new();
-    for id in &project_ids {
-        match prepare(&config, id, &available) {
-            Ok(p) => prepared.push(p),
-            Err(e) => {
-                prepared.iter().for_each(Prepared::discard);
-                let name = config.projects.iter().find(|p| &p.id == id);
-                return Err(match name {
-                    Some(p) if project_ids.len() > 1 => format!("{} : {e}", p.name),
-                    _ => e,
-                });
+    let mut prepared: Vec<Vec<Prepared>> = Vec::new();
+    let discard = |windows: &[Vec<Prepared>]| windows.iter().flatten().for_each(Prepared::discard);
+    for ids in &windows {
+        let mut tabs = Vec::new();
+        for id in ids {
+            match prepare(&config, id, &available) {
+                Ok(p) => tabs.push(p),
+                Err(e) => {
+                    discard(&prepared);
+                    tabs.iter().for_each(Prepared::discard);
+                    let name = config.projects.iter().find(|p| &p.id == id);
+                    return Err(match name {
+                        Some(p) if project_ids.len() > 1 => format!("{} : {e}", p.name),
+                        _ => e,
+                    });
+                }
             }
         }
+        prepared.push(tabs);
     }
+    // Every command line is built before anything opens.
+    let args = prepared
+        .iter()
+        .map(|tabs| core::tabs_args(&tabs.iter().map(Prepared::tab).collect::<Vec<_>>()))
+        .collect::<Result<Vec<_>, _>>();
+    let args = match args {
+        Ok(args) => args,
+        Err(e) => {
+            discard(&prepared);
+            return Err(e);
+        }
+    };
     // Before Windows Terminal, so its new window ends up in front. A browser
     // or a VS Code that cannot be started stops the launch, like any other
     // failure: the scripts are removed and nothing is opened.
     let mut urls: Vec<String> = Vec::new();
     let mut folders: Vec<String> = Vec::new();
-    for project in &prepared {
+    for project in prepared.iter().flatten() {
         if !project.url.is_empty() && !urls.contains(&project.url) {
             urls.push(project.url.clone());
         }
@@ -504,39 +525,21 @@ fn launch(config: Config, project_ids: Vec<String>, mode: LaunchMode) -> Result<
             .try_for_each(|folder| start(&code, &["--folder-uri".into(), folder.clone()]))
     })();
     if let Err(e) = opened {
-        prepared.iter().for_each(Prepared::discard);
+        discard(&prepared);
         return Err(e);
     }
     // wt returns after dispatch; application processes are owned by Windows Terminal.
-    match mode {
-        LaunchMode::Tabs => {
-            let tabs: Vec<_> = prepared.iter().map(Prepared::tab).collect();
-            let started = core::tabs_args(&tabs).and_then(|args| execute("wt.exe", &args, None));
-            if let Err(e) = started {
-                prepared.iter().for_each(Prepared::discard);
-                return Err(e);
-            }
-        }
-        LaunchMode::Windows => {
-            for (index, project) in prepared.iter().enumerate() {
-                let started = core::tabs_args(&[project.tab()])
-                    .and_then(|args| execute("wt.exe", &args, None));
-                if let Err(e) = started {
-                    prepared[index..].iter().for_each(Prepared::discard);
-                    return Err(e);
-                }
-            }
+    for (index, window) in args.iter().enumerate() {
+        if let Err(e) = execute("wt.exe", window, None) {
+            discard(&prepared[index..]);
+            return Err(e);
         }
     }
     Ok(())
 }
 #[tauri::command]
-async fn launch_projects(
-    config: Config,
-    project_ids: Vec<String>,
-    mode: LaunchMode,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || launch(config, project_ids, mode))
+async fn launch_projects(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || launch(config, windows))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -645,7 +648,7 @@ mod tests {
             launch_groups: Vec::new(),
         };
         let result = (|| -> Result<(), String> {
-            launch(config, vec!["p".into()], LaunchMode::Windows)?;
+            launch(config, vec![vec!["p".into()]])?;
             wsl("", &["bash", "--noprofile", "--norc", "-c", "for ((n=0;n<40;n++)); do if [[ -s $1/a && -s $1/b && -s $1/c && -s $1/d && -s $1/e ]]; then exit 0; fi; sleep .25; done; exit 1", "runterm", &folder], None)?;
             for id in ["a", "b", "c", "d", "e"] {
                 let content = wsl("", &["cat", &format!("{folder}/{id}")], None)?;

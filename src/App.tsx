@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  AppWindow,
   ArrowDown,
   ArrowUp,
   Check,
@@ -11,9 +10,7 @@ import {
   FolderOpen,
   Layers,
   LayoutTemplate,
-  ListVideo,
   LoaderCircle,
-  PanelTop,
   Pencil,
   Play,
   Plus,
@@ -26,7 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type AvailableUpdate, type LaunchMode, api, desktop } from "./api";
+import { type AvailableUpdate, api, desktop } from "./api";
 import {
   type Config,
   type LaunchGroup,
@@ -37,6 +34,8 @@ import {
   duplicateLayout,
   effectivePane,
   joinPath,
+  launchWindows,
+  maxLaunchWindows,
   moveItem,
   newPane,
   panes,
@@ -69,6 +68,9 @@ const storeWidth = (width: number | null) =>
   width === null
     ? localStorage.removeItem(widthKey)
     : localStorage.setItem(widthKey, String(width));
+
+const plural = (count: number, word: string) =>
+  `${count} ${word}${count > 1 ? "s" : ""}`;
 
 function shellLabel(items: Pane[], host = "") {
   const powershell = items.filter((p) => p.shell === "powershell").length;
@@ -206,32 +208,129 @@ function LayoutPreview({
   );
 }
 
-function LaunchToggle({
+/** Menu height used to open it above the badge near the bottom of the window. */
+const windowMenuHeight = 170;
+/** The window a project of the current launch group opens in, as a tab. */
+function WindowPicker({
   name,
   group,
-  on,
-  onToggle,
+  value,
+  onChange,
 }: {
   name: string;
   group: string;
-  on: boolean;
-  onToggle: () => void;
+  value?: number;
+  onChange: (window?: number) => void;
 }) {
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!position) return;
+    const close = (e: Event) => {
+      if (!menu.current?.contains(e.target as Node)) setPosition(null);
+    };
+    // Fixed on screen, so it closes rather than drift when the list scrolls.
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [position]);
+  const open = () => {
+    const rect = trigger.current!.getBoundingClientRect();
+    setPosition({
+      left: rect.left,
+      top:
+        rect.bottom + 4 + windowMenuHeight > window.innerHeight
+          ? rect.top - 4 - windowMenuHeight
+          : rect.bottom + 4,
+    });
+  };
+  const close = () => {
+    setPosition(null);
+    trigger.current?.focus();
+  };
+  const choices = [
+    undefined,
+    ...Array.from({ length: maxLaunchWindows }, (_, i) => i + 1),
+  ];
   return (
-    <button
-      type="button"
-      className={`launch-toggle ${on ? "on" : ""}`}
-      aria-pressed={on}
-      aria-label={`Inclure ${name} dans « Tout lancer »`}
-      title={
-        on
-          ? `Dans le groupe « ${group} » (cliquer pour retirer)`
-          : `Hors du groupe « ${group} » (cliquer pour ajouter)`
-      }
-      onClick={onToggle}
-    >
-      <ListVideo size={14} strokeWidth={on ? 2.4 : 2} />
-    </button>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className={`window-badge ${value ? `on window-${value}` : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={!!position}
+        aria-label={`Fenêtre de ${name} : ${value ?? "non lancé"}`}
+        title={
+          value
+            ? `Onglet de la fenêtre ${value} du groupe « ${group} »`
+            : `Non lancé par le groupe « ${group} »`
+        }
+        onPointerDown={(e) => position && e.stopPropagation()}
+        onClick={() => (position ? setPosition(null) : open())}
+      >
+        {value ?? "–"}
+      </button>
+      {position && (
+        <div
+          ref={menu}
+          className="window-menu"
+          role="menu"
+          aria-label={`Fenêtre de ${name}`}
+          style={position}
+          onKeyDown={(e) => {
+            const items = [
+              ...e.currentTarget.querySelectorAll<HTMLButtonElement>(
+                "[role=menuitemradio]",
+              ),
+            ];
+            const index = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            if (e.key === "Escape" || e.key === "Tab") {
+              e.preventDefault();
+              close();
+            } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              const step = e.key === "ArrowDown" ? 1 : -1;
+              items[(index + step + items.length) % items.length]?.focus();
+            }
+          }}
+        >
+          {choices.map((choice) => (
+            <button
+              key={choice ?? 0}
+              type="button"
+              role="menuitemradio"
+              aria-checked={choice === value}
+              autoFocus={choice === value}
+              onClick={() => {
+                onChange(choice);
+                close();
+              }}
+            >
+              <span
+                aria-hidden="true"
+                className={`window-badge ${choice ? `on window-${choice}` : ""}`}
+              >
+                {choice ?? "–"}
+              </span>
+              {choice ? `Fenêtre ${choice}` : "Ne pas lancer"}
+              {choice === value && <Check size={13} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -246,9 +345,9 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   // "launch": the edited project; a mode: the "launch all" buttons.
-  const [busy, setBusy] = useState<
-    "save" | LaunchMode | `launch:${string}` | null
-  >(null);
+  const [busy, setBusy] = useState<"save" | "all" | `launch:${string}` | null>(
+    null,
+  );
   const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
@@ -413,12 +512,7 @@ export default function App() {
     : undefined;
   const groups = config.launchGroups ?? [];
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
-  // In sidebar order, the order the projects open in.
-  const launchIds = group
-    ? config.projects
-        .filter((p) => group.projectIds.includes(p.id))
-        .map((p) => p.id)
-    : [];
+  const windows = launchWindows(config, group);
   const mutate = (fn: (data: Config) => Config) => {
     setConfig((data) => data && fn(data));
     setNotice("");
@@ -562,7 +656,9 @@ export default function App() {
         projects: data.projects.filter((p) => p.id !== project.id),
         launchGroups: data.launchGroups?.map((g) => ({
           ...g,
-          projectIds: g.projectIds.filter((id) => id !== project.id),
+          windows: Object.fromEntries(
+            Object.entries(g.windows).filter(([id]) => id !== project.id),
+          ),
         })),
       }));
     else if (template) {
@@ -582,10 +678,10 @@ export default function App() {
     setDeleting(false);
   };
   /**
-   * Saves, then launches when `launch` is given: one project, or the
-   * projects of the current launch group without `project`.
+   * Saves, then launches when `launch` is given: one project in its own
+   * window, or the windows of the current launch group without `project`.
    */
-  const save = async (launch?: { project?: string; mode: LaunchMode }) => {
+  const save = async (launch?: { project?: string }) => {
     if (busy) return;
     const invalid = validateConfig(config);
     if (invalid) {
@@ -593,14 +689,11 @@ export default function App() {
       return;
     }
     const snapshot = config;
-    const ids = !launch ? [] : launch.project ? [launch.project] : launchIds;
-    if (launch && !ids.length) return;
+    const opened = !launch ? [] : launch.project ? [[launch.project]] : windows;
+    const count = opened.flat().length;
+    if (launch && !count) return;
     setBusy(
-      !launch
-        ? "save"
-        : launch.project
-          ? `launch:${launch.project}`
-          : launch.mode,
+      !launch ? "save" : launch.project ? `launch:${launch.project}` : "all",
     );
     setError("");
     setNotice("");
@@ -608,10 +701,10 @@ export default function App() {
       await api.save(snapshot);
       setBaseline(JSON.stringify(snapshot));
       if (launch) {
-        await api.launch(snapshot, ids, launch.mode);
+        await api.launch(snapshot, opened);
         setNotice(
-          ids.length > 1
-            ? `Lancement de ${ids.length} projets transmis à Windows Terminal.`
+          count > 1
+            ? `Lancement de ${count} projets dans ${plural(opened.length, "fenêtre")} transmis à Windows Terminal.`
             : "Demande de lancement transmise à Windows Terminal.",
         );
       } else setNotice("Modifications enregistrées.");
@@ -668,14 +761,14 @@ export default function App() {
     }
   };
   const list = view === "projects" ? config.projects : config.templates;
-  const launchCount = launchIds.length;
+  const launchCount = windows.flat().length;
   const chooseGroup = (id: string) => {
     setGroupId(id);
     setRenamingGroup(false);
     localStorage.setItem(groupKey, id);
   };
-  const addGroup = (name: string, projectIds: string[] = []) => {
-    const created: LaunchGroup = { id: uid(), name, projectIds };
+  const addGroup = (name: string, windows: LaunchGroup["windows"] = {}) => {
+    const created: LaunchGroup = { id: uid(), name, windows };
     mutate((data) => ({
       ...data,
       launchGroups: [...(data.launchGroups ?? []), created],
@@ -689,16 +782,17 @@ export default function App() {
         g.id === group?.id ? fn(g) : g,
       ),
     }));
-  // The first toggle creates a group, so a single selection needs no setup.
-  const toggleLaunch = (id: string) =>
-    group
-      ? editGroup((g) => ({
-          ...g,
-          projectIds: g.projectIds.includes(id)
-            ? g.projectIds.filter((other) => other !== id)
-            : [...g.projectIds, id],
-        }))
-      : addGroup("Principal", [id]);
+  // The first choice creates a group, so a single selection needs no setup.
+  const setWindow = (id: string, window?: number) => {
+    if (!group) {
+      if (window) addGroup("Principal", { [id]: window });
+      return;
+    }
+    editGroup((g) => {
+      const { [id]: _previous, ...others } = g.windows;
+      return { ...g, windows: window ? { ...others, [id]: window } : others };
+    });
+  };
   const deleteGroup = () => {
     if (!group) return;
     mutate((data) => ({
@@ -787,11 +881,11 @@ export default function App() {
           {list.map((item) => (
             <div key={item.id} className="sidebar-row">
               {view === "projects" && (
-                <LaunchToggle
+                <WindowPicker
                   name={item.name}
                   group={group?.name ?? "Principal"}
-                  on={launchIds.includes(item.id)}
-                  onToggle={() => toggleLaunch(item.id)}
+                  value={group?.windows[item.id]}
+                  onChange={(window) => setWindow(item.id, window)}
                 />
               )}
               <button
@@ -847,9 +941,7 @@ export default function App() {
                       ? "Disponible dans l’application Windows"
                       : "Enregistrer et lancer le projet"
                   }
-                  onClick={() =>
-                    void save({ project: item.id, mode: "windows" })
-                  }
+                  onClick={() => void save({ project: item.id })}
                 >
                   {busy === `launch:${item.id}` ? (
                     <LoaderCircle className="spin" size={13} />
@@ -870,7 +962,7 @@ export default function App() {
               TOUT LANCER
               <span>
                 {launchCount
-                  ? `${launchCount} projet${launchCount > 1 ? "s" : ""}`
+                  ? `${plural(launchCount, "projet")} · ${plural(windows.length, "fenêtre")}`
                   : "Aucun projet activé"}
               </span>
             </div>
@@ -938,41 +1030,25 @@ export default function App() {
                 <Trash2 size={13} />
               </button>
             </div>
-            <div className="launch-all-buttons">
-              {(
-                [
-                  [
-                    "tabs",
-                    "Onglets",
-                    PanelTop,
-                    "une fenêtre, un onglet par projet",
-                  ],
-                  ["windows", "Fenêtres", AppWindow, "une fenêtre par projet"],
-                ] as const
-              ).map(([mode, label, Icon, detail]) => (
-                <button
-                  key={mode}
-                  className="button primary"
-                  disabled={!launchCount || !!busy || !desktop}
-                  aria-label={`Tout lancer en ${label.toLowerCase()}`}
-                  title={
-                    !desktop
-                      ? "Disponible dans l’application Windows"
-                      : !launchCount
-                        ? "Cochez l’icône de liste devant les projets à lancer"
-                        : `Enregistrer et lancer le groupe « ${group?.name} » : ${detail}`
-                  }
-                  onClick={() => void save({ mode })}
-                >
-                  {busy === mode ? (
-                    <LoaderCircle className="spin" size={14} />
-                  ) : (
-                    <Icon size={14} />
-                  )}
-                  {label}
-                </button>
-              ))}
-            </div>
+            <button
+              className="button primary launch-all-button"
+              disabled={!launchCount || !!busy || !desktop}
+              title={
+                !desktop
+                  ? "Disponible dans l’application Windows"
+                  : !launchCount
+                    ? "Choisissez la fenêtre des projets à lancer, devant leur nom"
+                    : `Enregistrer et lancer le groupe « ${group?.name} »`
+              }
+              onClick={() => void save({})}
+            >
+              {busy === "all" ? (
+                <LoaderCircle className="spin" size={14} />
+              ) : (
+                <Play size={14} />
+              )}
+              Tout lancer
+            </button>
           </div>
         )}
         <div className="sidebar-bottom">
@@ -1701,9 +1777,7 @@ export default function App() {
                           ? "Disponible dans l’application Windows"
                           : "Enregistrer et lancer le projet"
                       }
-                      onClick={() =>
-                        void save({ project: project.id, mode: "windows" })
-                      }
+                      onClick={() => void save({ project: project.id })}
                     >
                       {busy === `launch:${project.id}` ? (
                         <LoaderCircle className="spin" size={16} />

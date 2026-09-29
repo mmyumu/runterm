@@ -44,8 +44,16 @@ export type Project = {
   /** Legacy single "launch all" selection, moved into `launchGroups` on load. */
   launchAll?: boolean;
 };
-/** A named set of projects started together by the "launch all" buttons. */
-export type LaunchGroup = { id: string; name: string; projectIds: string[] };
+/** A named set of projects started together by the "launch all" button. */
+export type LaunchGroup = {
+  id: string;
+  name: string;
+  /** Window (1 to `maxLaunchWindows`) each started project opens in, as a tab. */
+  windows: Record<string, number>;
+  /** Legacy flat selection of the first launch groups, moved into `windows` on load. */
+  projectIds?: string[];
+};
+export const maxLaunchWindows = 4;
 export type Config = {
   schemaVersion: number;
   /** WSL folder holding the projects: prefills new roots and lists their subfolders. */
@@ -156,27 +164,57 @@ export function initialConfig(): Config {
   };
 }
 /**
- * Moves the legacy `launchAll` flags into a first launch group, as the
- * backend does when it loads an older configuration.
+ * Moves the legacy selections into window 1, as the backend does when it
+ * loads an older configuration: the `projectIds` of each launch group, and
+ * the `launchAll` flags into a first group.
  */
-export function migrateLaunchAll(config: Config): Config {
-  if (!config.projects.some((p) => "launchAll" in p)) return config;
+export function migrateConfig(config: Config): Config {
+  if (!Array.isArray(config.projects)) return config;
+  const legacyGroups = Array.isArray(config.launchGroups)
+    ? config.launchGroups.some((g) => g.projectIds || !g.windows)
+    : false;
+  if (!legacyGroups && !config.projects.some((p) => "launchAll" in p))
+    return config;
+  const groups = (config.launchGroups ?? []).map(
+    ({ projectIds = [], windows = {}, ...g }) => ({
+      ...g,
+      windows: {
+        ...Object.fromEntries(projectIds.map((id) => [id, 1])),
+        ...windows,
+      },
+    }),
+  );
   const flagged = config.projects.filter((p) => p.launchAll);
   return {
     ...config,
-    launchGroups: config.launchGroups?.length
-      ? config.launchGroups
+    launchGroups: groups.length
+      ? groups
       : flagged.length
         ? [
             {
               id: uid(),
               name: "Principal",
-              projectIds: flagged.map((p) => p.id),
+              windows: Object.fromEntries(flagged.map((p) => [p.id, 1])),
             },
           ]
         : [],
     projects: config.projects.map(({ launchAll: _legacy, ...p }) => p),
   };
+}
+/**
+ * Project ids of each window `group` opens, by window number, the tabs in
+ * sidebar order.
+ */
+export function launchWindows(config: Config, group?: LaunchGroup): string[][] {
+  if (!group) return [];
+  return [...new Set(Object.values(group.windows))]
+    .sort((a, b) => a - b)
+    .map((window) =>
+      config.projects
+        .filter((p) => group.windows[p.id] === window)
+        .map((p) => p.id),
+    )
+    .filter((ids) => ids.length);
 }
 export function validateConfig(config: Config): string | null {
   if (
@@ -219,10 +257,15 @@ export function validateConfig(config: Config): string | null {
   for (const group of config.launchGroups ?? []) {
     if (!group.name.trim() || /[\0\r\n;]/.test(group.name))
       return "Donnez un nom au groupe de lancement (sans point-virgule).";
-    if (
-      group.projectIds.some((id) => !config.projects.some((p) => p.id === id))
-    )
+    const windows = Object.entries(group.windows);
+    if (windows.some(([id]) => !config.projects.some((p) => p.id === id)))
       return "Un groupe de lancement référence un projet absent.";
+    if (
+      windows.some(
+        ([, w]) => !Number.isInteger(w) || w < 1 || w > maxLaunchWindows,
+      )
+    )
+      return `Les fenêtres de lancement vont de 1 à ${maxLaunchWindows}.`;
   }
   return null;
 }

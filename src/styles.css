@@ -220,24 +220,86 @@ nav {
 .sidebar-row .sidebar-entry {
   min-width: 0;
 }
-.launch-toggle {
+.window-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border: 0;
+  width: 20px;
+  height: 20px;
+  margin: 3px;
+  border: 1px dashed #365244;
   border-radius: 5px;
   background: none;
   color: #4c6559;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
-.launch-toggle:hover {
-  background: #1b2c24;
+button.window-badge:hover,
+button.window-badge[aria-expanded="true"] {
+  border-color: #6f8f80;
   color: #92ad95;
 }
-.launch-toggle.on {
+/* One hue per window, so the projects sharing one read as a set. */
+.window-badge.window-1 {
+  --window: #6db093;
+}
+.window-badge.window-2 {
+  --window: #6d9bd0;
+}
+.window-badge.window-3 {
+  --window: #d0a45c;
+}
+.window-badge.window-4 {
+  --window: #c77da8;
+}
+.window-badge.on {
+  border: 1px solid var(--window, #365244);
+  background: color-mix(in srgb, var(--window, transparent) 22%, transparent);
+  color: var(--window, #4c6559);
+}
+button.window-badge.on:hover {
+  background: color-mix(in srgb, var(--window, transparent) 36%, transparent);
+  color: var(--window, #92ad95);
+}
+.window-menu {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid #2d463a;
+  border-radius: 7px;
+  background: #16261f;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+.window-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #becac5;
+  font-size: 11px;
+  text-align: left;
+}
+.window-menu button:hover,
+.window-menu button:focus-visible {
+  background: #22382d;
+  outline: none;
+}
+.window-menu button svg {
+  margin-left: auto;
   color: #6db093;
+}
+.window-menu .window-badge {
+  margin: 0;
 }
 .row-launch {
   display: inline-flex;
@@ -296,13 +358,8 @@ nav {
   width: 26px;
   height: 26px;
 }
-.launch-all-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.launch-all-buttons .button {
-  flex: 1 1 70px;
+.launch-all-button {
+  width: 100%;
   min-height: 32px;
   padding: 7px 8px;
   gap: 6px;

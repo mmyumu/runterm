@@ -2,12 +2,11 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   type Config,
   initialConfig,
-  migrateLaunchAll,
+  migrateConfig,
   validateConfig,
 } from "./model";
 export const desktop = isTauri();
 const key = "runterm-preview-v1";
-export type LaunchMode = "tabs" | "windows";
 export type AvailableUpdate = {
   version: string;
   currentVersion: string;
@@ -20,9 +19,10 @@ export const api = {
       ? await invoke<Config | null>("load_config")
       : (JSON.parse(localStorage.getItem(key) ?? "null") as Config | null);
     if (!data) return initialConfig();
-    const error = validateConfig(data);
+    const config = migrateConfig(data);
+    const error = validateConfig(config);
     if (error) throw new Error(error);
-    return migrateLaunchAll(data);
+    return config;
   },
   async save(config: Config): Promise<void> {
     const error = validateConfig(config);
@@ -39,17 +39,13 @@ export const api = {
     desktop
       ? invoke<string[]>("list_directories", { distribution, path })
       : Promise.resolve<string[]>([]),
-  /** "tabs": one window with a tab per project; "windows": one window each. */
-  async launch(
-    config: Config,
-    projectIds: string[],
-    mode: LaunchMode = "windows",
-  ): Promise<void> {
+  /** One Windows Terminal window per entry, with a tab per project id. */
+  async launch(config: Config, windows: string[][]): Promise<void> {
     if (!desktop)
       throw new Error(
         "Le lancement est disponible dans l’application Windows. Cette page est un aperçu de l’éditeur.",
       );
-    await invoke("launch_projects", { config, projectIds, mode });
+    await invoke("launch_projects", { config, windows });
   },
   version: () =>
     desktop

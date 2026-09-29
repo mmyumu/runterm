@@ -162,7 +162,7 @@ pub struct Config {
     pub workspace_root: String,
     pub templates: Vec<Template>,
     pub projects: Vec<Project>,
-    /// Named sets of projects started together by the "launch all" buttons.
+    /// Named sets of projects started together by the "launch all" button.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub launch_groups: Vec<LaunchGroup>,
 }
@@ -171,8 +171,17 @@ pub struct Config {
 pub struct LaunchGroup {
     pub id: String,
     pub name: String,
+    /// Window (1 to [`MAX_LAUNCH_WINDOWS`]) each started project opens in, as
+    /// a tab; the projects left out are not started.
+    #[serde(default)]
+    pub windows: BTreeMap<String, u8>,
+    /// Legacy flat selection of the first launch groups: moved into
+    /// `windows` by `load`, all in window 1, never written back.
+    #[serde(default, skip_serializing)]
     pub project_ids: Vec<String>,
 }
+/// Windows a launch group can spread its projects over.
+pub const MAX_LAUNCH_WINDOWS: u8 = 4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedPane {
     pub id: String,
@@ -349,26 +358,42 @@ impl Config {
             if !groups.insert(&group.id) {
                 return Err("Identifiant de groupe dupliqué.".into());
             }
-            if group.project_ids.iter().any(|id| !projects.contains(&id)) {
+            if group.windows.keys().any(|id| !projects.contains(&id)) {
                 return Err("Un groupe de lancement référence un projet absent.".into());
+            }
+            if group
+                .windows
+                .values()
+                .any(|w| !(1..=MAX_LAUNCH_WINDOWS).contains(w))
+            {
+                return Err(format!(
+                    "Les fenêtres de lancement vont de 1 à {MAX_LAUNCH_WINDOWS}."
+                ));
             }
         }
         Ok(())
     }
-    /// Moves the legacy `launch_all` flags of an older file into a first
-    /// launch group, unless the file already has groups.
-    fn migrate_launch_all(&mut self) {
-        let flagged: Vec<String> = self
+    /// Moves the legacy selections of an older file into window 1: the
+    /// `project_ids` of each group, and the `launch_all` flags into a first
+    /// group unless the file already has groups.
+    fn migrate(&mut self) {
+        for group in &mut self.launch_groups {
+            for id in std::mem::take(&mut group.project_ids) {
+                group.windows.entry(id).or_insert(1);
+            }
+        }
+        let flagged: BTreeMap<String, u8> = self
             .projects
             .iter()
             .filter(|p| p.launch_all)
-            .map(|p| p.id.clone())
+            .map(|p| (p.id.clone(), 1))
             .collect();
         if !flagged.is_empty() && self.launch_groups.is_empty() {
             self.launch_groups.push(LaunchGroup {
                 id: "principal".into(),
                 name: "Principal".into(),
-                project_ids: flagged,
+                windows: flagged,
+                project_ids: Vec::new(),
             });
         }
         for project in &mut self.projects {
@@ -434,8 +459,8 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
         Ok(bytes) => {
             let mut config: Config = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Configuration illisible, fichier conservé : {e}"))?;
+            config.migrate();
             config.validate()?;
-            config.migrate_launch_all();
             Ok(Some(config))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -709,7 +734,7 @@ pub struct TabLaunch<'a> {
     pub launches: &'a BTreeMap<String, PaneLaunch>,
 }
 
-/// Panes started by one launch, all tabs together.
+/// Panes of one Windows Terminal window, all tabs together.
 pub const MAX_LAUNCH_PANES: usize = 64;
 
 /// One new window with a tab per entry, the first one focused.
@@ -719,7 +744,7 @@ pub fn tabs_args(tabs: &[TabLaunch]) -> Result<Vec<String>, String> {
     }
     if tabs.iter().map(|t| t.layout.panes().len()).sum::<usize>() > MAX_LAUNCH_PANES {
         return Err(format!(
-            "Un lancement peut ouvrir au maximum {MAX_LAUNCH_PANES} panneaux."
+            "Une fenêtre peut ouvrir au maximum {MAX_LAUNCH_PANES} panneaux."
         ));
     }
     let mut out = vec!["-w".into(), "new".into(), "--maximized".into()];

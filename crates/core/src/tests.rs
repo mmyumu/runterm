@@ -869,15 +869,24 @@ fn launch_groups_are_optional_and_validated() {
     c.launch_groups.push(LaunchGroup {
         id: "g".into(),
         name: "Boulot".into(),
-        project_ids: vec!["p".into()],
+        windows: BTreeMap::from([("p".into(), 2)]),
+        project_ids: Vec::new(),
     });
     let json = serde_json::to_value(&c).unwrap();
-    assert_eq!(json["launchGroups"][0]["projectIds"][0], "p");
+    assert_eq!(json["launchGroups"][0]["windows"]["p"], 2);
     assert_eq!(serde_json::from_value::<Config>(json).unwrap(), c);
     assert!(c.validate().is_ok());
-    c.launch_groups[0].project_ids.push("absent".into());
+    c.launch_groups[0].windows.insert("absent".into(), 1);
     assert!(c.validate().unwrap_err().contains("projet absent"));
-    c.launch_groups[0].project_ids.pop();
+    c.launch_groups[0].windows.remove("absent");
+    for window in [0, MAX_LAUNCH_WINDOWS + 1] {
+        c.launch_groups[0].windows.insert("p".into(), window);
+        assert!(c.validate().unwrap_err().contains("de 1 à"));
+    }
+    c.launch_groups[0]
+        .windows
+        .insert("p".into(), MAX_LAUNCH_WINDOWS);
+    assert!(c.validate().is_ok());
     c.launch_groups[0].name = " ".into();
     assert!(c.validate().is_err());
     c.launch_groups[0].name = "Boulot".into();
@@ -894,17 +903,30 @@ fn load_moves_launch_all_into_a_group() {
     let loaded = load(&path).unwrap().unwrap();
     assert_eq!(loaded.launch_groups.len(), 1);
     assert_eq!(loaded.launch_groups[0].name, "Principal");
-    assert_eq!(loaded.launch_groups[0].project_ids, vec!["p"]);
+    assert_eq!(
+        loaded.launch_groups[0].windows,
+        BTreeMap::from([("p".into(), 1)])
+    );
     assert!(!loaded.projects[0].launch_all);
     // The flag is never written back.
     let saved = serde_json::to_value(&loaded).unwrap();
     assert!(saved["projects"][0].get("launchAll").is_none());
     // Existing groups win over leftover flags.
-    json["launchGroups"] = serde_json::json!([{"id": "g", "name": "Perso", "projectIds": []}]);
+    json["launchGroups"] = serde_json::json!([{"id": "g", "name": "Perso", "windows": {}}]);
     fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
     let loaded = load(&path).unwrap().unwrap();
     assert_eq!(loaded.launch_groups.len(), 1);
     assert_eq!(loaded.launch_groups[0].name, "Perso");
+    // The flat selection of the first groups lands in window 1, never written back.
+    json["launchGroups"] = serde_json::json!([{"id": "g", "name": "Perso", "projectIds": ["p"]}]);
+    fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+    let loaded = load(&path).unwrap().unwrap();
+    assert_eq!(
+        loaded.launch_groups[0].windows,
+        BTreeMap::from([("p".into(), 1)])
+    );
+    let saved = serde_json::to_value(&loaded).unwrap();
+    assert!(saved["launchGroups"][0].get("projectIds").is_none());
 }
 
 #[test]
