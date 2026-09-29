@@ -90,8 +90,9 @@ pub struct Project {
     pub vscode_folder: String,
     pub template_id: String,
     pub overrides: BTreeMap<String, Override>,
-    /// Started by the "launch all" buttons.
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// Legacy single "launch all" selection: read from older files, moved
+    /// into `Config::launch_groups` by `load`, never written back.
+    #[serde(default, skip_serializing)]
     pub launch_all: bool,
 }
 impl Project {
@@ -161,6 +162,16 @@ pub struct Config {
     pub workspace_root: String,
     pub templates: Vec<Template>,
     pub projects: Vec<Project>,
+    /// Named sets of projects started together by the "launch all" buttons.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub launch_groups: Vec<LaunchGroup>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchGroup {
+    pub id: String,
+    pub name: String,
+    pub project_ids: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedPane {
@@ -331,7 +342,38 @@ impl Config {
                 }
             }
         }
+        let mut groups = HashSet::new();
+        for group in &self.launch_groups {
+            valid_text(&group.id, "Identifiant du groupe")?;
+            valid_text(&group.name, "Nom du groupe de lancement")?;
+            if !groups.insert(&group.id) {
+                return Err("Identifiant de groupe dupliqué.".into());
+            }
+            if group.project_ids.iter().any(|id| !projects.contains(&id)) {
+                return Err("Un groupe de lancement référence un projet absent.".into());
+            }
+        }
         Ok(())
+    }
+    /// Moves the legacy `launch_all` flags of an older file into a first
+    /// launch group, unless the file already has groups.
+    fn migrate_launch_all(&mut self) {
+        let flagged: Vec<String> = self
+            .projects
+            .iter()
+            .filter(|p| p.launch_all)
+            .map(|p| p.id.clone())
+            .collect();
+        if !flagged.is_empty() && self.launch_groups.is_empty() {
+            self.launch_groups.push(LaunchGroup {
+                id: "principal".into(),
+                name: "Principal".into(),
+                project_ids: flagged,
+            });
+        }
+        for project in &mut self.projects {
+            project.launch_all = false;
+        }
     }
     pub fn resolve(
         &self,
@@ -390,9 +432,10 @@ impl Config {
 pub fn load(path: &Path) -> Result<Option<Config>, String> {
     match fs::read(path) {
         Ok(bytes) => {
-            let config: Config = serde_json::from_slice(&bytes)
+            let mut config: Config = serde_json::from_slice(&bytes)
                 .map_err(|e| format!("Configuration illisible, fichier conservé : {e}"))?;
             config.validate()?;
+            config.migrate_launch_all();
             Ok(Some(config))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

@@ -5,10 +5,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import { api } from "./api";
+import type { LaunchGroup, Project } from "./model";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -305,14 +307,9 @@ it("choisit les projets lancés par « Tout lancer » et s’en souvient", async
     expect(screen.getByRole("status").textContent).toContain("enregistrées"),
   );
   const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
-  expect(
-    saved.projects.map((p: { name: string; launchAll?: boolean }) => [
-      p.name,
-      p.launchAll,
-    ]),
-  ).toEqual([
-    ["Nouveau projet", undefined],
-    ["Second", true],
+  const second = saved.projects.find((p: Project) => p.name === "Second");
+  expect(saved.launchGroups).toEqual([
+    { id: expect.any(String), name: "Principal", projectIds: [second.id] },
   ]);
   cleanup();
   render(<App />);
@@ -323,6 +320,69 @@ it("choisit les projets lancés par « Tout lancer » et s’en souvient", async
       })
     ).getAttribute("aria-pressed"),
   ).toBe("true");
+});
+
+it("garde une sélection par groupe de lancement", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Créer mon premier projet" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Créer un projet" }));
+  const name = screen.getByLabelText("Nom du projet");
+  await user.clear(name);
+  await user.type(name, "Boulot");
+  const toggle = (project: string) =>
+    screen.getByRole("button", {
+      name: `Inclure ${project} dans « Tout lancer »`,
+    });
+  const select = () =>
+    screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Groupe de lancement",
+    });
+  expect(select().disabled).toBe(true);
+  await user.click(toggle("Nouveau projet"));
+  expect(select().selectedOptions[0].textContent).toBe("Principal");
+  // A new group starts empty and opens its name for editing.
+  await user.click(screen.getByRole("button", { name: "Nouveau groupe" }));
+  const groupName = screen.getByLabelText("Nom du groupe");
+  await user.clear(groupName);
+  await user.type(groupName, "Travail{Enter}");
+  expect(toggle("Nouveau projet").getAttribute("aria-pressed")).toBe("false");
+  await user.click(toggle("Boulot"));
+  expect(select().selectedOptions[0].textContent).toBe("Travail");
+  await user.selectOptions(select(), "Principal");
+  expect(toggle("Nouveau projet").getAttribute("aria-pressed")).toBe("true");
+  expect(toggle("Boulot").getAttribute("aria-pressed")).toBe("false");
+  await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain("enregistrées"),
+  );
+  const saved = JSON.parse(localStorage.getItem("runterm-preview-v1")!);
+  const id = (n: string) =>
+    saved.projects.find((p: Project) => p.name === n).id;
+  expect(
+    saved.launchGroups.map((g: LaunchGroup) => [g.name, g.projectIds]),
+  ).toEqual([
+    ["Principal", [id("Nouveau projet")]],
+    ["Travail", [id("Boulot")]],
+  ]);
+  // Deleting a project takes it out of its groups.
+  await user.click(screen.getByRole("button", { name: /^Boulot/ }));
+  await user.click(screen.getByRole("button", { name: "Supprimer" }));
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", {
+      name: "Supprimer",
+    }),
+  );
+  await user.selectOptions(select(), "Travail");
+  expect(
+    screen.getByRole("group", { name: "Tout lancer" }).textContent,
+  ).toContain("Aucun projet activé");
+  await user.click(screen.getByRole("button", { name: "Supprimer le groupe" }));
+  expect([...select().options].map((o) => o.textContent)).toEqual([
+    "Principal",
+  ]);
 });
 
 it("redimensionne la barre latérale et se souvient de la largeur", async () => {

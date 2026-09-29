@@ -272,6 +272,30 @@ nav {
   letter-spacing: 0;
   color: #92ad95;
 }
+.launch-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 9px;
+}
+.launch-group select,
+.launch-group input {
+  flex: 1;
+  height: 29px;
+  margin-right: 4px;
+  background: #16261f;
+  color: #d5e2dc;
+  border-color: #263b30;
+}
+.launch-group select:hover,
+.launch-group input:hover {
+  border-color: #3b5a4a;
+}
+.launch-group .icon-button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+}
 .launch-all-buttons {
   display: flex;
   flex-wrap: wrap;

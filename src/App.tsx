@@ -14,6 +14,7 @@ import {
   ListVideo,
   LoaderCircle,
   PanelTop,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -28,6 +29,7 @@ import {
 import { type AvailableUpdate, type LaunchMode, api, desktop } from "./api";
 import {
   type Config,
+  type LaunchGroup,
   type Layout,
   type Pane,
   type Project,
@@ -46,6 +48,8 @@ import {
 
 /** Sidebar width, in pixels: kept in this webview, not in the configuration. */
 const widthKey = "runterm-sidebar-width";
+/** Launch group shown under « Tout lancer »: a choice of this webview too. */
+const groupKey = "runterm-launch-group";
 // How long a success message floats before it fades out on its own.
 const noticeDelay = 5000;
 /** The fade-out of `.toast.leaving` in styles.css: keep both in step. */
@@ -204,10 +208,12 @@ function LayoutPreview({
 
 function LaunchToggle({
   name,
+  group,
   on,
   onToggle,
 }: {
   name: string;
+  group: string;
   on: boolean;
   onToggle: () => void;
 }) {
@@ -219,8 +225,8 @@ function LaunchToggle({
       aria-label={`Inclure ${name} dans « Tout lancer »`}
       title={
         on
-          ? "Lancé par « Tout lancer » (cliquer pour retirer)"
-          : "Non lancé par « Tout lancer » (cliquer pour ajouter)"
+          ? `Dans le groupe « ${group} » (cliquer pour retirer)`
+          : `Hors du groupe « ${group} » (cliquer pour ajouter)`
       }
       onClick={onToggle}
     >
@@ -255,6 +261,10 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState<number | null>();
   // null: the width from the stylesheet, which follows the window size.
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(storedWidth);
+  const [groupId, setGroupId] = useState(
+    () => localStorage.getItem(groupKey) ?? "",
+  );
+  const [renamingGroup, setRenamingGroup] = useState(false);
   const alive = useRef(true);
   const sidebar = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -401,6 +411,14 @@ export default function App() {
   const effective = selectedPane
     ? effectivePane(selectedPane, project)
     : undefined;
+  const groups = config.launchGroups ?? [];
+  const group = groups.find((g) => g.id === groupId) ?? groups[0];
+  // In sidebar order, the order the projects open in.
+  const launchIds = group
+    ? config.projects
+        .filter((p) => group.projectIds.includes(p.id))
+        .map((p) => p.id)
+    : [];
   const mutate = (fn: (data: Config) => Config) => {
     setConfig((data) => data && fn(data));
     setNotice("");
@@ -542,6 +560,10 @@ export default function App() {
       mutate((data) => ({
         ...data,
         projects: data.projects.filter((p) => p.id !== project.id),
+        launchGroups: data.launchGroups?.map((g) => ({
+          ...g,
+          projectIds: g.projectIds.filter((id) => id !== project.id),
+        })),
       }));
     else if (template) {
       if (config.projects.some((p) => p.templateId === template.id)) {
@@ -560,8 +582,8 @@ export default function App() {
     setDeleting(false);
   };
   /**
-   * Saves, then launches when `launch` is given: one project, or every
-   * `launchAll` project without `project`. The backend reads the saved state.
+   * Saves, then launches when `launch` is given: one project, or the
+   * projects of the current launch group without `project`.
    */
   const save = async (launch?: { project?: string; mode: LaunchMode }) => {
     if (busy) return;
@@ -571,11 +593,7 @@ export default function App() {
       return;
     }
     const snapshot = config;
-    const ids = !launch
-      ? []
-      : launch.project
-        ? [launch.project]
-        : snapshot.projects.filter((p) => p.launchAll).map((p) => p.id);
+    const ids = !launch ? [] : launch.project ? [launch.project] : launchIds;
     if (launch && !ids.length) return;
     setBusy(
       !launch
@@ -650,14 +668,45 @@ export default function App() {
     }
   };
   const list = view === "projects" ? config.projects : config.templates;
-  const launchCount = config.projects.filter((p) => p.launchAll).length;
-  const toggleLaunchAll = (id: string) =>
+  const launchCount = launchIds.length;
+  const chooseGroup = (id: string) => {
+    setGroupId(id);
+    setRenamingGroup(false);
+    localStorage.setItem(groupKey, id);
+  };
+  const addGroup = (name: string, projectIds: string[] = []) => {
+    const created: LaunchGroup = { id: uid(), name, projectIds };
     mutate((data) => ({
       ...data,
-      projects: data.projects.map((p) =>
-        p.id === id ? { ...p, launchAll: !p.launchAll || undefined } : p,
+      launchGroups: [...(data.launchGroups ?? []), created],
+    }));
+    chooseGroup(created.id);
+  };
+  const editGroup = (fn: (g: LaunchGroup) => LaunchGroup) =>
+    mutate((data) => ({
+      ...data,
+      launchGroups: data.launchGroups?.map((g) =>
+        g.id === group?.id ? fn(g) : g,
       ),
     }));
+  // The first toggle creates a group, so a single selection needs no setup.
+  const toggleLaunch = (id: string) =>
+    group
+      ? editGroup((g) => ({
+          ...g,
+          projectIds: g.projectIds.includes(id)
+            ? g.projectIds.filter((other) => other !== id)
+            : [...g.projectIds, id],
+        }))
+      : addGroup("Principal", [id]);
+  const deleteGroup = () => {
+    if (!group) return;
+    mutate((data) => ({
+      ...data,
+      launchGroups: data.launchGroups?.filter((g) => g.id !== group.id),
+    }));
+    chooseGroup(groups.find((g) => g.id !== group.id)?.id ?? "");
+  };
   // The sidebar starts at the left edge, so the pointer position is the width.
   const startSidebarDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     let width = sidebar.current?.offsetWidth ?? 0;
@@ -740,8 +789,9 @@ export default function App() {
               {view === "projects" && (
                 <LaunchToggle
                   name={item.name}
-                  on={!!(item as Project).launchAll}
-                  onToggle={() => toggleLaunchAll(item.id)}
+                  group={group?.name ?? "Principal"}
+                  on={launchIds.includes(item.id)}
+                  onToggle={() => toggleLaunch(item.id)}
                 />
               )}
               <button
@@ -824,6 +874,70 @@ export default function App() {
                   : "Aucun projet activé"}
               </span>
             </div>
+            <div className="launch-group">
+              {renamingGroup && group ? (
+                <input
+                  aria-label="Nom du groupe"
+                  value={group.name}
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) =>
+                    editGroup((g) => ({ ...g, name: e.target.value }))
+                  }
+                  onBlur={() => setRenamingGroup(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "Escape")
+                      setRenamingGroup(false);
+                  }}
+                />
+              ) : (
+                <select
+                  aria-label="Groupe de lancement"
+                  value={group?.id ?? ""}
+                  disabled={!groups.length}
+                  onChange={(e) => chooseGroup(e.target.value)}
+                >
+                  {groups.length ? (
+                    groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name || "Sans nom"}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">Aucun groupe</option>
+                  )}
+                </select>
+              )}
+              <button
+                className="icon-button"
+                aria-label="Renommer le groupe"
+                title="Renommer le groupe"
+                disabled={!group}
+                onClick={() => setRenamingGroup(true)}
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Nouveau groupe"
+                title="Nouveau groupe de lancement"
+                onClick={() => {
+                  addGroup(`Groupe ${groups.length + 1}`);
+                  setRenamingGroup(true);
+                }}
+              >
+                <Plus size={14} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Supprimer le groupe"
+                title="Supprimer le groupe (les projets sont conservés)"
+                disabled={!group}
+                onClick={deleteGroup}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
             <div className="launch-all-buttons">
               {(
                 [
@@ -846,7 +960,7 @@ export default function App() {
                       ? "Disponible dans l’application Windows"
                       : !launchCount
                         ? "Cochez l’icône de liste devant les projets à lancer"
-                        : `Enregistrer et lancer les projets activés : ${detail}`
+                        : `Enregistrer et lancer le groupe « ${group?.name} » : ${detail}`
                   }
                   onClick={() => void save({ mode })}
                 >

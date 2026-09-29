@@ -642,6 +642,7 @@ mod tests {
                 overrides: BTreeMap::new(),
                 launch_all: false,
             }],
+            launch_groups: Vec::new(),
         };
         let result = (|| -> Result<(), String> {
             launch(config, vec!["p".into()], LaunchMode::Windows)?;

@@ -41,15 +41,19 @@ export type Project = {
   vscodeFolder?: string;
   templateId: string;
   overrides: Record<string, PaneOverride>;
-  /** Started by the "launch all" buttons; absent: not started. */
+  /** Legacy single "launch all" selection, moved into `launchGroups` on load. */
   launchAll?: boolean;
 };
+/** A named set of projects started together by the "launch all" buttons. */
+export type LaunchGroup = { id: string; name: string; projectIds: string[] };
 export type Config = {
   schemaVersion: number;
   /** WSL folder holding the projects: prefills new roots and lists their subfolders. */
   workspaceRoot?: string;
   templates: Template[];
   projects: Project[];
+  /** Absent: no group yet. */
+  launchGroups?: LaunchGroup[];
 };
 export const uid = () => crypto.randomUUID();
 export const newPane = (name = "Terminal"): Pane => ({
@@ -151,6 +155,29 @@ export function initialConfig(): Config {
     ],
   };
 }
+/**
+ * Moves the legacy `launchAll` flags into a first launch group, as the
+ * backend does when it loads an older configuration.
+ */
+export function migrateLaunchAll(config: Config): Config {
+  if (!config.projects.some((p) => "launchAll" in p)) return config;
+  const flagged = config.projects.filter((p) => p.launchAll);
+  return {
+    ...config,
+    launchGroups: config.launchGroups?.length
+      ? config.launchGroups
+      : flagged.length
+        ? [
+            {
+              id: uid(),
+              name: "Principal",
+              projectIds: flagged.map((p) => p.id),
+            },
+          ]
+        : [],
+    projects: config.projects.map(({ launchAll: _legacy, ...p }) => p),
+  };
+}
 export function validateConfig(config: Config): string | null {
   if (
     config.schemaVersion !== 1 ||
@@ -188,6 +215,14 @@ export function validateConfig(config: Config): string | null {
       return "Dossier VS Code invalide (caractère de contrôle).";
     if (!config.templates.some((t) => t.id === project.templateId))
       return "Choisissez un modèle existant.";
+  }
+  for (const group of config.launchGroups ?? []) {
+    if (!group.name.trim() || /[\0\r\n;]/.test(group.name))
+      return "Donnez un nom au groupe de lancement (sans point-virgule).";
+    if (
+      group.projectIds.some((id) => !config.projects.some((p) => p.id === id))
+    )
+      return "Un groupe de lancement référence un projet absent.";
   }
   return null;
 }

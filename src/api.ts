@@ -1,5 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { type Config, initialConfig, validateConfig } from "./model";
+import {
+  type Config,
+  initialConfig,
+  migrateLaunchAll,
+  validateConfig,
+} from "./model";
 export const desktop = isTauri();
 const key = "runterm-preview-v1";
 export type LaunchMode = "tabs" | "windows";
@@ -17,7 +22,7 @@ export const api = {
     if (!data) return initialConfig();
     const error = validateConfig(data);
     if (error) throw new Error(error);
-    return data;
+    return migrateLaunchAll(data);
   },
   async save(config: Config): Promise<void> {
     const error = validateConfig(config);

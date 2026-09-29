@@ -4,6 +4,7 @@ import {
   effectivePane,
   initialConfig,
   joinPath,
+  migrateLaunchAll,
   moveItem,
   newPane,
   panes,
@@ -186,5 +187,42 @@ describe("ordre des éléments", () => {
     expect(ids(moveItem(items, "d", "b"))).toEqual(["a", "d", "b", "c"]);
     expect(moveItem(items, "a", "a")).toBe(items);
     expect(moveItem(items, "x", "a")).toBe(items);
+  });
+});
+describe("groupes de lancement", () => {
+  const withProjects = () => {
+    const config = initialConfig();
+    const project = (id: string, launchAll?: boolean): Project => ({
+      id,
+      name: id,
+      root: "/home/me",
+      distribution: "",
+      templateId: config.templates[0].id,
+      overrides: {},
+      ...(launchAll === undefined ? {} : { launchAll }),
+    });
+    return { ...config, projects: [project("a", true), project("b", false)] };
+  };
+  it("reprend l’ancienne sélection « Tout lancer » dans un groupe", () => {
+    const migrated = migrateLaunchAll(withProjects());
+    expect(migrated.launchGroups).toEqual([
+      { id: expect.any(String), name: "Principal", projectIds: ["a"] },
+    ]);
+    expect(migrated.projects.some((p) => "launchAll" in p)).toBe(false);
+    expect(migrateLaunchAll(migrated)).toBe(migrated);
+  });
+  it("refuse un groupe sans nom ou vers un projet absent", () => {
+    const config = migrateLaunchAll(withProjects());
+    const group = config.launchGroups![0];
+    expect(validateConfig(config)).toBeNull();
+    expect(
+      validateConfig({ ...config, launchGroups: [{ ...group, name: " " }] }),
+    ).toContain("nom au groupe");
+    expect(
+      validateConfig({
+        ...config,
+        launchGroups: [{ ...group, projectIds: ["x"] }],
+      }),
+    ).toContain("projet absent");
   });
 });
