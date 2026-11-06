@@ -39,6 +39,63 @@ A project with **Ouvrir VS Code** checked also opens a Visual Studio Code window
 
 Editing a template affects its projects on the next launch; customized fields keep priority. Changing a project's template resets its customizations. A template in use cannot be deleted. Limits: 16 panes, with ratios from 10 to 90%; Windows Terminal's minimum size may limit very dense layouts.
 
+## Pane environment variables
+
+Every pane RunTerm opens (a project launched alone or through **Tout lancer**, Bash in WSL, SSH or PowerShell) exports the variables below in its shell before its actions, so every program started in it inherits them. Other tools use them to tie a process to the project, window, tab and pane it runs in. The names are a public contract: they are never renamed, and `RUNTERM_ENV_VERSION` is incremented when the meaning of one changes.
+
+| Variable | Value |
+| --- | --- |
+| `RUNTERM_ENV_VERSION` | Version of this contract: `1`. |
+| `RUNTERM_LAUNCH_ID` | Fresh UUID of the launch, the same for every pane it opens. |
+| `RUNTERM_PROJECT_ID` | `id` of the project in the configuration. |
+| `RUNTERM_PROJECT_NAME` | Its `name`. |
+| `RUNTERM_PROJECT_ROOT` | Its `root`: a WSL path, or a path on the SSH host. |
+| `RUNTERM_HOST` | Its SSH `host`; empty for a WSL project. |
+| `RUNTERM_DISTRIBUTION` | WSL distribution the pane runs in, resolved when the project names none (PowerShell panes: the one holding the project folder); empty on an SSH host. |
+| `RUNTERM_LAUNCH_GROUP` | `id` of the launch group started by **Tout lancer**; empty for a project launched alone. |
+| `RUNTERM_TEMPLATE_ID` | `id` of the project's template. |
+| `RUNTERM_WINDOW_NUMBER` | Window number of the project in the launch group (1 to 4); `1` for a project launched alone. |
+| `RUNTERM_WINDOW_NAME` | Name of the Windows Terminal window, for `wt.exe -w`. |
+| `RUNTERM_TAB` | Position of the tab in its window at launch, from **1**. |
+| `RUNTERM_PANE_INDEX` | Position of the pane in its tab at launch, from **0**, in the order Windows Terminal created the panes: the value `wt.exe focus-pane --target` takes. |
+| `RUNTERM_PANE_ID` | `id` of the pane in the template. |
+| `RUNTERM_PANE_NAME` | Its `name`, e.g. `AI`. |
+
+Example, the second pane of a project started by a launch group:
+
+```console
+$ env | grep RUNTERM_ | sort
+RUNTERM_DISTRIBUTION=Ubuntu
+RUNTERM_ENV_VERSION=1
+RUNTERM_HOST=
+RUNTERM_LAUNCH_GROUP=3f2c9a10-1b7e-4c1d-9e6a-5d0b8c7f2a41
+RUNTERM_LAUNCH_ID=8d1e4b7a-6c2f-4f0e-a9b3-71d5e2c40f96
+RUNTERM_PANE_ID=c41f0e2a-5b8d-4e6a-b3c7-2f9d1a8e6b05
+RUNTERM_PANE_INDEX=1
+RUNTERM_PANE_NAME=AI
+RUNTERM_PROJECT_ID=0a7b3c5d-9e1f-4a2b-8c6d-4e5f6a7b8c9d
+RUNTERM_PROJECT_NAME=WSL - Worktree 4
+RUNTERM_PROJECT_ROOT=/home/me/worktrees/4
+RUNTERM_TAB=2
+RUNTERM_TEMPLATE_ID=default
+RUNTERM_WINDOW_NAME=runterm-8d1e4b7a-1
+RUNTERM_WINDOW_NUMBER=1
+```
+
+Bringing the user back to that pane:
+
+```bat
+wt.exe -w runterm-8d1e4b7a-1 focus-tab --target 1
+wt.exe -w runterm-8d1e4b7a-1 focus-pane --target 1
+```
+
+`focus-tab --target` counts from 0, hence `RUNTERM_TAB - 1`; `focus-pane --target` takes `RUNTERM_PANE_INDEX` as is.
+
+- `RUNTERM_LAUNCH_ID` and `RUNTERM_PROJECT_ID` are the reliable identifiers. `RUNTERM_TAB` and `RUNTERM_PANE_INDEX` describe the layout **at launch** only: the user may move, close or drag out tabs and panes afterwards, so they are hints to check, not addresses.
+- The pane index follows creation order, not the reading order of the layout: the first pane of the tree is `0`, then each split creates the first pane of its second half (right or bottom) before the splits of its first half are made. For a 2×2 grid split top/bottom first, rows `[a | b]` over `[c | d]`, `a`=0, `c`=1, `b`=2, `d`=3.
+- Each window RunTerm opens is named `runterm-<first 8 characters of RUNTERM_LAUNCH_ID>-<window number>`, so it is always a new window and other tools can target it with `wt.exe -w <name>`. Renaming the window in Windows Terminal breaks that target.
+- The variables travel inside the pane's own script (an `export` at its top, before `~/.bashrc`; `$env:` assignments in PowerShell), never through the Windows environment, `WSLENV` or SSH `SendEnv`: they reach WSL and the SSH host alike, whichever Windows Terminal window runs the pane. A pane without actions stays a silent interactive shell in its folder.
+
 ## Windows development
 
 Prerequisites:

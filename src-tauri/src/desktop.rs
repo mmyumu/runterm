@@ -273,7 +273,14 @@ impl Prepared {
         }
     }
 }
-fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Prepared, String> {
+/// Prepares `project_id` as tab `info.tab` of its window; each pane script
+/// starts by exporting the pane's `RUNTERM_*` variables ([`core::pane_env`]).
+fn prepare(
+    config: &Config,
+    project_id: &str,
+    available: &[String],
+    info: &core::LaunchInfo,
+) -> Result<Prepared, String> {
     let (project, template, panes) = config.resolve(project_id)?;
     if !project.distribution.is_empty() && !available.contains(&project.distribution) {
         return Err("La distribution WSL sélectionnée est introuvable.".into());
@@ -291,8 +298,11 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
         project.terminal_profile.clone()
     };
     let vscode = project.vscode_uri(distribution);
+    let env = |pane: &core::ResolvedPane| {
+        core::pane_env(info, project, distribution, &template.layout, pane)
+    };
     if !project.host.is_empty() {
-        return prepare_ssh(project, template, &panes, profile, vscode);
+        return prepare_ssh(project, template, &panes, profile, vscode, &env);
     }
     for pane in &panes {
         wsl(
@@ -324,7 +334,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
         .map(|p| {
             // The Linux folder, reached from Windows through \\wsl.localhost.
             let directory = core::wsl_windows_path(distribution, &p.directory);
-            let script = core::powershell_script(p, &directory);
+            let script = core::powershell_script(p, &directory, &env(p));
             (p.id.clone(), core::PaneLaunch::Powershell { script, pwsh })
         })
         .collect();
@@ -373,7 +383,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
                 core::shell_quote(&path),
                 core::shell_quote(&folder)
             );
-            let script = format!("{}{}", cleanup, core::pane_script(pane));
+            let script = format!("{}{}", cleanup, core::pane_script(pane, &env(pane)));
             wsl(
                 &project.distribution,
                 &[
@@ -392,7 +402,7 @@ fn prepare(config: &Config, project_id: &str, available: &[String]) -> Result<Pr
                 .insert(pane.id.clone(), core::PaneLaunch::Bash(path));
         }
         // Fails early on a layout Windows Terminal cannot receive.
-        core::tabs_args(&[prepared.tab()]).map(drop)
+        core::tabs_args("new", &[prepared.tab()]).map(drop)
     })();
     match written {
         Ok(()) => Ok(prepared),
@@ -411,6 +421,7 @@ fn prepare_ssh(
     panes: &[core::ResolvedPane],
     profile: String,
     vscode: String,
+    env: &dyn Fn(&core::ResolvedPane) -> Vec<(&'static str, String)>,
 ) -> Result<Prepared, String> {
     if let Some(pane) = panes.iter().find(|p| p.shell == core::Shell::Powershell) {
         return Err(format!(
@@ -429,21 +440,32 @@ fn prepare_ssh(
             .map(|p| {
                 let launch = core::PaneLaunch::Ssh {
                     host: project.host.clone(),
-                    script: core::pane_script(p),
+                    script: core::pane_script(p, &env(p)),
                 };
                 (p.id.clone(), launch)
             })
             .collect(),
         folder: None,
     };
-    core::tabs_args(&[prepared.tab()])?;
+    core::tabs_args("new", &[prepared.tab()])?;
     Ok(prepared)
 }
 /// Prepares every project before opening anything: one failure starts none.
 /// Each entry of `windows` opens one Windows Terminal window with a tab per
-/// project, in order.
-fn launch(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
+/// project, in order. `group` is the launch group they come from, `None` for a
+/// project launched alone: it numbers the windows like the group does.
+fn launch(config: Config, windows: Vec<Vec<String>>, group: Option<String>) -> Result<(), String> {
     config.validate()?;
+    let group = match group.filter(|g| !g.is_empty()) {
+        Some(id) => Some(
+            config
+                .launch_groups
+                .iter()
+                .find(|g| g.id == id)
+                .ok_or("Groupe de lancement introuvable.")?,
+        ),
+        None => None,
+    };
     let windows: Vec<Vec<String>> = windows.into_iter().filter(|w| !w.is_empty()).collect();
     let project_ids: Vec<&String> = windows.iter().flatten().collect();
     if project_ids.is_empty() {
@@ -463,12 +485,42 @@ fn launch(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
     if available.is_empty() {
         return Err("Aucune distribution WSL installée.".into());
     }
+    // Shared by every pane of the launch; its start also names the windows,
+    // so they are new ones that other programs can target with `wt.exe -w`.
+    let launch_id = uuid::Uuid::new_v4().to_string();
+    // The group's window number of each window; outside a group, its position.
+    let numbers: Vec<u8> = windows
+        .iter()
+        .enumerate()
+        .map(|(index, ids)| {
+            group
+                .and_then(|g| g.windows.get(&ids[0]).copied())
+                .unwrap_or(u8::try_from(index + 1).unwrap_or(u8::MAX))
+        })
+        .collect();
+    // A name already taken would add tabs to that window instead of a new one.
+    if numbers
+        .iter()
+        .enumerate()
+        .any(|(index, n)| numbers[..index].contains(n))
+    {
+        return Err("Deux fenêtres portent le même numéro.".into());
+    }
     let mut prepared: Vec<Vec<Prepared>> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     let discard = |windows: &[Vec<Prepared>]| windows.iter().flatten().for_each(Prepared::discard);
-    for ids in &windows {
+    for (ids, number) in windows.iter().zip(numbers) {
+        let name = format!("runterm-{}-{number}", &launch_id[..8]);
         let mut tabs = Vec::new();
-        for id in ids {
-            match prepare(&config, id, &available) {
+        for (tab, id) in ids.iter().enumerate() {
+            let info = core::LaunchInfo {
+                launch_id: &launch_id,
+                launch_group: group.map_or("", |g| g.id.as_str()),
+                window_number: number,
+                window_name: &name,
+                tab: tab + 1,
+            };
+            match prepare(&config, id, &available, &info) {
                 Ok(p) => tabs.push(p),
                 Err(e) => {
                     discard(&prepared);
@@ -482,11 +534,15 @@ fn launch(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
             }
         }
         prepared.push(tabs);
+        names.push(name);
     }
     // Every command line is built before anything opens.
     let args = prepared
         .iter()
-        .map(|tabs| core::tabs_args(&tabs.iter().map(Prepared::tab).collect::<Vec<_>>()))
+        .zip(&names)
+        .map(|(tabs, name)| {
+            core::tabs_args(name, &tabs.iter().map(Prepared::tab).collect::<Vec<_>>())
+        })
         .collect::<Result<Vec<_>, _>>();
     let args = match args {
         Ok(args) => args,
@@ -538,8 +594,12 @@ fn launch(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-async fn launch_projects(config: Config, windows: Vec<Vec<String>>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || launch(config, windows))
+async fn launch_projects(
+    config: Config,
+    windows: Vec<Vec<String>>,
+    launch_group: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || launch(config, windows, launch_group))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -598,6 +658,10 @@ mod tests {
                     core::shell_quote(&format!("{folder}/{id}"))
                 ),
                 format!(
+                    "env | grep ^RUNTERM_ | sort > {}",
+                    core::shell_quote(&format!("{folder}/{id}.env"))
+                ),
+                format!(
                     "for ((n=0;n<100;n++)); do [[ -f {} ]] && break; sleep .1; done; exit",
                     core::shell_quote(&format!("{folder}/release"))
                 ),
@@ -622,6 +686,10 @@ mod tests {
                 split("right", Axis::Columns, make_pane("d"), make_pane("e")),
             ),
         );
+        let order: Vec<String> = core::pane_order(&layout)
+            .into_iter()
+            .map(String::from)
+            .collect();
         let config = Config {
             schema_version: 1,
             workspace_root: String::new(),
@@ -632,7 +700,7 @@ mod tests {
             }],
             projects: vec![Project {
                 id: "p".into(),
-                name: "Smoke".into(),
+                name: "Smoke l'été \"x\" $HOME".into(),
                 root: folder.clone(),
                 host: String::new(),
                 distribution: String::new(),
@@ -648,12 +716,56 @@ mod tests {
             launch_groups: Vec::new(),
         };
         let result = (|| -> Result<(), String> {
-            launch(config, vec![vec!["p".into()]])?;
+            launch(config, vec![vec!["p".into()]], None)?;
             wsl("", &["bash", "--noprofile", "--norc", "-c", "for ((n=0;n<40;n++)); do if [[ -s $1/a && -s $1/b && -s $1/c && -s $1/d && -s $1/e ]]; then exit 0; fi; sleep .25; done; exit 1", "runterm", &folder], None)?;
-            for id in ["a", "b", "c", "d", "e"] {
+            let ids = ["a", "b", "c", "d", "e"];
+            for id in ids {
                 let content = wsl("", &["cat", &format!("{folder}/{id}")], None)?;
                 if content != format!("{folder}\nvalue ; quoted\n") {
                     return Err(format!("Panneau {id} : contenu inattendu : {content:?}"));
+                }
+            }
+            // RUNTERM_* variables: shared values, then each pane's own.
+            let read = |id: &str| wsl("", &["cat", &format!("{folder}/{id}.env")], None);
+            let first = read("a")?;
+            let value = |env: &str, name: &str| {
+                env.lines()
+                    .find_map(|l| l.strip_prefix(&format!("{name}=")))
+                    .map(str::to_owned)
+                    .ok_or(format!("{name} absent : {env}"))
+            };
+            let launch_id = value(&first, "RUNTERM_LAUNCH_ID")?;
+            let window = value(&first, "RUNTERM_WINDOW_NAME")?;
+            if window != format!("runterm-{}-1", &launch_id[..8]) {
+                return Err(format!("Nom de fenêtre inattendu : {window}"));
+            }
+            for id in ids {
+                let env = read(id)?;
+                let index = order.iter().position(|p| *p == id).unwrap();
+                let expected = [
+                    ("RUNTERM_ENV_VERSION", "1".to_owned()),
+                    ("RUNTERM_LAUNCH_ID", launch_id.clone()),
+                    ("RUNTERM_PROJECT_ID", "p".into()),
+                    ("RUNTERM_PROJECT_NAME", "Smoke l'été \"x\" $HOME".into()),
+                    ("RUNTERM_PROJECT_ROOT", folder.clone()),
+                    ("RUNTERM_HOST", String::new()),
+                    ("RUNTERM_LAUNCH_GROUP", String::new()),
+                    ("RUNTERM_TEMPLATE_ID", "t".into()),
+                    ("RUNTERM_WINDOW_NUMBER", "1".into()),
+                    ("RUNTERM_WINDOW_NAME", window.clone()),
+                    ("RUNTERM_TAB", "1".into()),
+                    ("RUNTERM_PANE_INDEX", index.to_string()),
+                    ("RUNTERM_PANE_ID", id.into()),
+                    ("RUNTERM_PANE_NAME", format!("RunTerm test {id}")),
+                ];
+                for (name, want) in expected {
+                    let got = value(&env, name)?;
+                    if got != want {
+                        return Err(format!("Panneau {id} : {name}={got:?}, attendu {want:?}"));
+                    }
+                }
+                if value(&env, "RUNTERM_DISTRIBUTION")?.is_empty() {
+                    return Err(format!("Panneau {id} : RUNTERM_DISTRIBUTION vide"));
                 }
             }
             Ok(())

@@ -701,7 +701,11 @@ export default function App() {
       await api.save(snapshot);
       setBaseline(JSON.stringify(snapshot));
       if (launch) {
-        await api.launch(snapshot, opened);
+        await api.launch(
+          snapshot,
+          opened,
+          launch.project ? undefined : group?.id,
+        );
         setNotice(
           count > 1
             ? `Lancement de ${count} projets dans ${plural(opened.length, "fenêtre")} transmis à Windows Terminal.`

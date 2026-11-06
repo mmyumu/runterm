@@ -549,7 +549,7 @@ fn powershell_sequence_preserves_scope_and_stops_on_failure() {
         ],
         shell: Shell::Powershell,
     };
-    let script = powershell_script(&p, d.path().to_str().unwrap());
+    let script = powershell_script(&p, d.path().to_str().unwrap(), &[]);
     let out = Command::new("powershell.exe")
         .args([
             "-NoLogo",
@@ -608,7 +608,7 @@ fn bash_sequence_preserves_environment_and_stops_on_failure() {
         shell: Shell::Bash,
     };
     let rc = d.path().join("rc");
-    fs::write(&rc, pane_script(&p)).unwrap();
+    fs::write(&rc, pane_script(&p, &[])).unwrap();
     let mut child = Command::new("bash")
         .args(["--noprofile", "--rcfile", rc.to_str().unwrap(), "-i"])
         .env("HOME", home.path())
@@ -650,7 +650,7 @@ fn actions_are_recallable_from_the_shell_history() {
         shell: Shell::Bash,
     };
     let rc = dir.path().join("rc");
-    fs::write(&rc, pane_script(&pane)).unwrap();
+    fs::write(&rc, pane_script(&pane, &[])).unwrap();
     let dump = dir.path().join("history");
     let mut child = Command::new("bash")
         .args(["--noprofile", "--rcfile", rc.to_str().unwrap(), "-i"])
@@ -704,7 +704,7 @@ fn ctrl_c_interrupts_sequence_and_keeps_interactive_prompt() {
         ],
         shell: Shell::Bash,
     };
-    fs::write(&rc, pane_script(&pane)).unwrap();
+    fs::write(&rc, pane_script(&pane, &[])).unwrap();
     let driver = r#"
 import os, pty, select, signal, sys, time
 pid, fd = pty.fork()
@@ -766,7 +766,7 @@ fn preserves_array_prompt_hooks_and_runs_startup_only_once() {
         commands: vec!["printf x >> count".into()],
         shell: Shell::Bash,
     };
-    fs::write(&rc, pane_script(&pane)).unwrap();
+    fs::write(&rc, pane_script(&pane, &[])).unwrap();
     let mut child = Command::new("bash")
         .args(["--noprofile", "--rcfile", rc.to_str().unwrap(), "-i"])
         .env("HOME", home.path())
@@ -806,20 +806,23 @@ fn tabs_args_open_one_tab_per_project() {
     };
     // Both projects use the same template, hence the same pane ids.
     let (first, second) = (bash(&["a", "b"], "one"), bash(&["a", "b"], "two"));
-    let args = tabs_args(&[
-        TabLaunch {
-            layout: &split,
-            distribution: "Ubuntu",
-            profile: "Ubuntu",
-            launches: &first,
-        },
-        TabLaunch {
-            layout: &split,
-            distribution: "Debian",
-            profile: "Sombre",
-            launches: &second,
-        },
-    ])
+    let args = tabs_args(
+        "new",
+        &[
+            TabLaunch {
+                layout: &split,
+                distribution: "Ubuntu",
+                profile: "Ubuntu",
+                launches: &first,
+            },
+            TabLaunch {
+                layout: &split,
+                distribution: "Debian",
+                profile: "Sombre",
+                launches: &second,
+            },
+        ],
+    )
     .unwrap();
     assert_eq!(&args[..4], ["-w", "new", "--maximized", "new-tab"]);
     assert_eq!(args.iter().filter(|a| *a == "new-tab").count(), 2);
@@ -834,12 +837,15 @@ fn tabs_args_open_one_tab_per_project() {
     assert!(tail.iter().all(|a| !a.contains("runterm-one")));
     // A single tab keeps the historical output, without focus-tab.
     assert_eq!(
-        tabs_args(&[TabLaunch {
-            layout: &split,
-            distribution: "Ubuntu",
-            profile: "Ubuntu",
-            launches: &first,
-        }])
+        tabs_args(
+            "new",
+            &[TabLaunch {
+                layout: &split,
+                distribution: "Ubuntu",
+                profile: "Ubuntu",
+                launches: &first,
+            }]
+        )
         .unwrap(),
         terminal_args(&split, "Ubuntu", "Ubuntu", &first).unwrap()
     );
@@ -847,7 +853,7 @@ fn tabs_args_open_one_tab_per_project() {
         .unwrap()
         .iter()
         .all(|a| a != "focus-tab"));
-    assert!(tabs_args(&[]).is_err());
+    assert!(tabs_args("new", &[]).is_err());
     let (one, single) = (bash(&["a"], "x"), pane("a"));
     let many = vec![
         TabLaunch {
@@ -858,8 +864,8 @@ fn tabs_args_open_one_tab_per_project() {
         };
         MAX_LAUNCH_PANES + 1
     ];
-    assert!(tabs_args(&many[..MAX_LAUNCH_PANES]).is_ok());
-    assert!(tabs_args(&many).is_err());
+    assert!(tabs_args("new", &many[..MAX_LAUNCH_PANES]).is_ok());
+    assert!(tabs_args("new", &many).is_err());
 }
 #[test]
 fn launch_groups_are_optional_and_validated() {
@@ -1032,7 +1038,7 @@ fn ssh_command_runs_the_pane_script_on_the_host() {
             "--noprofile",
             "--norc",
             "-c",
-            &ssh_command("me@vm", &pane_script(&pane)).unwrap(),
+            &ssh_command("me@vm", &pane_script(&pane, &[])).unwrap(),
         ])
         .env("HOME", home.path())
         .env(
@@ -1064,4 +1070,354 @@ fn ssh_command_runs_the_pane_script_on_the_host() {
         fs::read_to_string(output_file).unwrap(),
         format!("hello ; \"world\" {}\n", d.path().display())
     );
+}
+
+/// Values a user may type in names and paths, hostile to every layer a pane
+/// command crosses (wt.exe, wsl.exe or ssh, then Bash).
+const TRAPPED: &str = "l'été ; $HOME \"dq\" `id` $(id) \\ & | > é";
+
+fn trapped_project() -> Project {
+    let mut project = config().projects.remove(0);
+    project.id = format!("id {TRAPPED}");
+    project.name = format!("Nom {TRAPPED}");
+    project.root = format!("/home/me/wt 4/{TRAPPED}");
+    project
+}
+
+fn info() -> LaunchInfo<'static> {
+    LaunchInfo {
+        launch_id: "0b6f1c1e-2f6a-4c55-9d38-2a7c0d1e9f10",
+        launch_group: "groupe 'g'",
+        window_number: 3,
+        window_name: "runterm-0b6f1c1e-3",
+        tab: 2,
+    }
+}
+
+/// `RUNTERM_*` lines of `env`, sorted, as `NAME=value`.
+fn runterm_env(output: &str) -> Vec<String> {
+    let mut lines: Vec<String> = output
+        .split('\0')
+        .filter(|l| l.starts_with("RUNTERM_"))
+        .map(str::to_owned)
+        .collect();
+    lines.sort();
+    lines
+}
+
+fn expected_env(env: &[(&str, String)]) -> Vec<String> {
+    let mut lines: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    lines.sort();
+    lines
+}
+
+#[test]
+fn pane_order_is_windows_terminal_creation_order() {
+    use Axis::{Columns as C, Rows as R};
+    let layouts = [
+        pane("a"),
+        split(C, pane("a"), pane("b")),
+        split(R, split(C, pane("a"), pane("b")), pane("c")),
+        split(
+            R,
+            split(C, pane("a"), pane("b")),
+            split(C, pane("c"), split(C, pane("d"), pane("e"))),
+        ),
+        split(
+            C,
+            pane("a"),
+            split(R, split(C, pane("b"), pane("c")), pane("d")),
+        ),
+    ];
+    for l in &layouts {
+        let launches = l
+            .panes()
+            .iter()
+            .map(|p| {
+                (
+                    p.id().to_owned(),
+                    PaneLaunch::Bash(format!("/tmp/runterm-t/{}.sh", p.id())),
+                )
+            })
+            .collect();
+        let args = terminal_args(l, "Ubuntu", "Ubuntu", &launches).unwrap();
+        // Titles (the pane ids here) of `new-tab` and each `split-pane`: the
+        // panes in the order Windows Terminal creates and numbers them.
+        let created: Vec<&str> = args
+            .split(|a| a == ";")
+            .filter(|c| c.iter().any(|a| a == "new-tab" || a == "split-pane"))
+            .map(|c| c[c.iter().position(|a| a == "--title").unwrap() + 1].as_str())
+            .collect();
+        assert_eq!(pane_order(l), created);
+    }
+    // Not the reading order of the tree.
+    assert_eq!(
+        pane_order(&layouts[3]),
+        ["a", "c", "b", "d", "e"],
+        "{:?}",
+        layouts[3]
+    );
+}
+
+#[test]
+fn pane_env_describes_the_pane_of_a_multi_pane_tab() {
+    use Axis::{Columns as C, Rows as R};
+    let mut c = config();
+    c.templates[0].layout = split(
+        R,
+        split(C, pane("a"), pane("b")),
+        split(C, pane("c"), pane("d")),
+    );
+    let (project, template, panes) = c.resolve("p").unwrap();
+    let env: Vec<Vec<(&str, String)>> = panes
+        .iter()
+        .map(|p| pane_env(&info(), project, "Ubuntu", &template.layout, p))
+        .collect();
+    let get = |pane: usize, name: &str| {
+        env[pane]
+            .iter()
+            .find(|(k, _)| *k == name)
+            .unwrap()
+            .1
+            .clone()
+    };
+    // a, b, c, d in reading order; created a, c, b, d.
+    let indexes: Vec<String> = (0..4).map(|i| get(i, "RUNTERM_PANE_INDEX")).collect();
+    assert_eq!(indexes, ["0", "2", "1", "3"]);
+    assert_eq!(get(1, "RUNTERM_PANE_ID"), "b");
+    assert_eq!(get(1, "RUNTERM_PANE_NAME"), "b");
+    assert_eq!(
+        expected_env(&env[0]),
+        expected_env(&[
+            ("RUNTERM_ENV_VERSION", "1".into()),
+            (
+                "RUNTERM_LAUNCH_ID",
+                "0b6f1c1e-2f6a-4c55-9d38-2a7c0d1e9f10".into()
+            ),
+            ("RUNTERM_PROJECT_ID", "p".into()),
+            ("RUNTERM_PROJECT_NAME", "Projet".into()),
+            ("RUNTERM_PROJECT_ROOT", "/home/me/project".into()),
+            ("RUNTERM_HOST", String::new()),
+            ("RUNTERM_DISTRIBUTION", "Ubuntu".into()),
+            ("RUNTERM_LAUNCH_GROUP", "groupe 'g'".into()),
+            ("RUNTERM_TEMPLATE_ID", "t".into()),
+            ("RUNTERM_WINDOW_NUMBER", "3".into()),
+            ("RUNTERM_WINDOW_NAME", "runterm-0b6f1c1e-3".into()),
+            ("RUNTERM_TAB", "2".into()),
+            ("RUNTERM_PANE_INDEX", "0".into()),
+            ("RUNTERM_PANE_ID", "a".into()),
+            ("RUNTERM_PANE_NAME", "a".into()),
+        ])
+    );
+    // On an SSH host the panes do not run in a WSL distribution.
+    let mut remote = project.clone();
+    remote.host = "me@vm".into();
+    let ssh = pane_env(&info(), &remote, "Ubuntu", &template.layout, &panes[0]);
+    assert!(ssh.contains(&("RUNTERM_HOST", "me@vm".into())));
+    assert!(ssh.contains(&("RUNTERM_DISTRIBUTION", String::new())));
+}
+
+/// Runs `script` as the rcfile of an interactive Bash fed `input`.
+#[cfg(unix)]
+fn run_rcfile(script: &str, input: &str) -> std::process::Output {
+    use std::process::{Command, Stdio};
+    let d = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let rc = d.path().join("rc");
+    fs::write(&rc, script).unwrap();
+    let mut child = Command::new("bash")
+        .args(["--noprofile", "--rcfile", rc.to_str().unwrap(), "-i"])
+        .env("HOME", home.path())
+        .env("PS1", "$ ")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn local_pane_exports_trapped_values_before_its_actions() {
+    let d = tempfile::tempdir().unwrap();
+    let directory = d.path().join(TRAPPED);
+    fs::create_dir(&directory).unwrap();
+    let output_file = d.path().join("env");
+    let project = trapped_project();
+    let pane = ResolvedPane {
+        id: format!("pane {TRAPPED}"),
+        name: format!("AI {TRAPPED}"),
+        directory: directory.to_str().unwrap().into(),
+        // An action sees them, and so does every program it starts.
+        commands: vec![format!(
+            "env -0 > {}",
+            shell_quote(output_file.to_str().unwrap())
+        )],
+        shell: Shell::Bash,
+    };
+    let layout = Layout::Pane {
+        id: pane.id.clone(),
+        name: pane.name.clone(),
+        directory: ".".into(),
+        commands: Vec::new(),
+        shell: Shell::Bash,
+    };
+    let env = pane_env(&info(), &project, "Ubuntu", &layout, &pane);
+    let out = run_rcfile(&pane_script(&pane, &env), "exit\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let seen = runterm_env(&fs::read_to_string(output_file).unwrap());
+    assert_eq!(seen, expected_env(&env));
+    assert!(seen.contains(&format!("RUNTERM_PROJECT_ROOT=/home/me/wt 4/{TRAPPED}")));
+    assert!(seen.contains(&"RUNTERM_PANE_INDEX=0".to_owned()));
+}
+
+/// A pane without action is still a silent interactive shell in its folder:
+/// the variables add no output.
+#[cfg(unix)]
+#[test]
+fn pane_without_actions_stays_a_silent_shell() {
+    let d = tempfile::tempdir().unwrap();
+    let resolved = ResolvedPane {
+        id: "a".into(),
+        name: "a".into(),
+        directory: d.path().to_str().unwrap().into(),
+        commands: Vec::new(),
+        shell: Shell::Bash,
+    };
+    let project = trapped_project();
+    let env = pane_env(&info(), &project, "Ubuntu", &pane("a"), &resolved);
+    let input = "printf 'PWD=%s\\n' \"$PWD\"\nprintf '%s\\n' \"$RUNTERM_PANE_NAME\"\nexit\n";
+    let with = run_rcfile(&pane_script(&resolved, &env), input);
+    let without = run_rcfile(&pane_script(&resolved, &[]), input);
+    // Only the echoed variable differs; anything else printed (by the
+    // system bashrc, for instance) is the same with and without variables.
+    let (with_out, without_out) = (
+        String::from_utf8_lossy(&with.stdout),
+        String::from_utf8_lossy(&without.stdout),
+    );
+    let pwd = format!("PWD={}\n", d.path().display());
+    assert!(with_out.ends_with(&format!("{pwd}a\n")), "{with_out}");
+    assert_eq!(
+        with_out.replace(&format!("{pwd}a\n"), &format!("{pwd}\n")),
+        without_out
+    );
+    assert_eq!(with.stderr, without.stderr);
+}
+
+/// Same as `ssh_command_runs_the_pane_script_on_the_host`, for the variables:
+/// they travel inside the script, not through `SendEnv` or `WSLENV`.
+#[cfg(unix)]
+#[test]
+fn ssh_pane_exports_trapped_values_on_the_host() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+    let d = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    let fake = bin.path().join("ssh");
+    // A remote login starts from a clean environment.
+    fs::write(
+        &fake,
+        "#!/bin/sh\n[ \"$1 $2 $3\" = '-t -- me@vm' ] || exit 99\nexec env -i HOME=\"$HOME\" PATH=\"$PATH\" sh -c \"$4\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let output_file = d.path().join("env");
+    let mut project = trapped_project();
+    project.host = "me@vm".into();
+    let resolved = ResolvedPane {
+        id: "a".into(),
+        name: format!("AI {TRAPPED}"),
+        directory: d.path().to_str().unwrap().into(),
+        commands: vec![format!(
+            "env -0 > {}",
+            shell_quote(output_file.to_str().unwrap())
+        )],
+        shell: Shell::Bash,
+    };
+    let layout = split(Axis::Columns, pane("z"), pane("a"));
+    let env = pane_env(&info(), &project, "Ubuntu", &layout, &resolved);
+    let command = ssh_command("me@vm", &pane_script(&resolved, &env)).unwrap();
+    // What Windows Terminal receives: no `;` it would split on, no `"`.
+    assert!(!command.contains([';', '"']));
+    let mut child = Command::new("bash")
+        .args(["--noprofile", "--norc", "-c", &command])
+        .env("HOME", home.path())
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"exit\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    let seen = runterm_env(&fs::read_to_string(&output_file).unwrap_or_else(|_| {
+        panic!("{}", String::from_utf8_lossy(&out.stderr));
+    }));
+    assert_eq!(seen, expected_env(&env));
+    assert!(seen.contains(&"RUNTERM_HOST=me@vm".to_owned()));
+    assert!(seen.contains(&"RUNTERM_DISTRIBUTION=".to_owned()));
+    assert!(seen.contains(&"RUNTERM_PANE_INDEX=1".to_owned()));
+}
+
+#[test]
+fn powershell_pane_sets_quoted_variables_first() {
+    let pane = ResolvedPane {
+        id: "a".into(),
+        name: "l'été ‘x’".into(),
+        directory: String::new(),
+        commands: vec!["echo ok".into()],
+        shell: Shell::Powershell,
+    };
+    let env = vec![
+        ("RUNTERM_PANE_NAME", pane.name.clone()),
+        ("RUNTERM_TAB", "1".into()),
+    ];
+    let script = powershell_script(&pane, r"\\wsl.localhost\Ubuntu\p", &env);
+    let lines: Vec<&str> = script.lines().collect();
+    assert_eq!(lines[1], "$env:RUNTERM_PANE_NAME = 'l''été ‘‘x’’'");
+    assert_eq!(lines[2], "$env:RUNTERM_TAB = '1'");
+    assert!(lines[3].starts_with("$__runterm_ok"));
+}
+
+#[test]
+fn tabs_args_name_the_window() {
+    let one = BTreeMap::from([(
+        "a".to_owned(),
+        PaneLaunch::Bash("/tmp/runterm-x/a.sh".into()),
+    )]);
+    let single = pane("a");
+    let tab = TabLaunch {
+        layout: &single,
+        distribution: "Ubuntu",
+        profile: "Ubuntu",
+        launches: &one,
+    };
+    let args = tabs_args("runterm-0b6f1c1e-2", &[tab, tab]).unwrap();
+    assert_eq!(
+        &args[..4],
+        ["-w", "runterm-0b6f1c1e-2", "--maximized", "new-tab"]
+    );
+    for bad in ["", "12", "-1", "a b", "a;b", "runterm_1", "fenêtre"] {
+        assert!(tabs_args(bad, &[tab]).is_err(), "{bad}");
+    }
+    assert!(valid_window_name("new") && valid_window_name("runterm-1"));
 }

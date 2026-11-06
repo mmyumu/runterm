@@ -39,13 +39,25 @@ export const api = {
     desktop
       ? invoke<string[]>("list_directories", { distribution, path })
       : Promise.resolve<string[]>([]),
-  /** One Windows Terminal window per entry, with a tab per project id. */
-  async launch(config: Config, windows: string[][]): Promise<void> {
+  /**
+   * One Windows Terminal window per entry, with a tab per project id.
+   * `launchGroup`: id of the launch group they come from, exported to the
+   * panes as `RUNTERM_LAUNCH_GROUP`; absent for a project launched alone.
+   */
+  async launch(
+    config: Config,
+    windows: string[][],
+    launchGroup?: string,
+  ): Promise<void> {
     if (!desktop)
       throw new Error(
         "Le lancement est disponible dans l’application Windows. Cette page est un aperçu de l’éditeur.",
       );
-    await invoke("launch_projects", { config, windows });
+    await invoke("launch_projects", {
+      config,
+      windows,
+      launchGroup: launchGroup ?? null,
+    });
   },
   version: () =>
     desktop
