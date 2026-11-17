@@ -1,0 +1,5 @@
+{"tests": ["checks.yml"],
+ "components": [
+  {"name": "Docs and tooling", "deploy": "none", "paths": ["README.md", "CLAUDE.md", "LICENSE", "normandy.json", ".gitignore", ".github/**", "docs/**", "scripts/**", "assets/**"]},
+  {"name": "Desktop app", "deploy": "none", "paths": ["src/**", "src-tauri/**", "crates/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "package.json", "package-lock.json", "index.html", "tsconfig.json", "vite.config.ts"]}
+ ]}
